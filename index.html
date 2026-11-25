@@ -1,0 +1,1985 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CastFlow Pro — AI Ad-Skipping & Studio DSP Podcast Player</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            studio: {
+              950: '#07090f',
+              900: '#0d111a',
+              850: '#131926',
+              800: '#1a2234',
+              700: '#27334d',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar & striped ad segment styling */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0d111a; }
+    ::-webkit-scrollbar-thumb { background: #27334d; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3b4d73; }
+
+    .ad-stripe {
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(245, 158, 11, 0.85),
+        rgba(245, 158, 11, 0.85) 5px,
+        rgba(220, 38, 38, 0.85) 5px,
+        rgba(220, 38, 38, 0.85) 10px
+      );
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 9999px;
+      background: #1a2234;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 16px;
+      width: 16px;
+      border-radius: 50%;
+      background: #6366f1;
+      margin-top: -5px;
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.6);
+      transition: transform 0.12s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.18);
+    }
+  </style>
+</head>
+<body class="bg-studio-950 text-slate-100 font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-200 overflow-x-hidden">
+
+  <!-- Hidden Audio Element driven by Web Audio API Graph -->
+  <audio id="audioEngine" crossorigin="anonymous" preload="auto"></audio>
+
+  <!-- Toast / Ad-Skip Notification Banner -->
+  <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- Main App Shell -->
+  <div class="min-h-screen flex flex-col lg:flex-row">
+
+    <!-- LEFT SIDEBAR: Library, Queue, RSS/File Loader & OPML -->
+    <aside class="w-full lg:w-80 xl:w-96 bg-studio-900 border-b lg:border-b-0 lg:border-r border-slate-800/80 flex flex-col shrink-0">
+      <!-- Brand Header -->
+      <div class="p-4 sm:p-5 border-b border-slate-800/80 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+            </svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="font-bold text-lg tracking-tight text-white">CastFlow <span class="text-indigo-400">Pro</span></h1>
+              <span class="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">DSP</span>
+            </div>
+            <p class="text-xs text-slate-400">Ad-Shield & Smart Audio Engine</p>
+          </div>
+        </div>
+
+        <!-- Car Mode Quick Trigger -->
+        <button id="openCarModeBtn" title="Car / Driving Mode" class="p-2.5 rounded-xl bg-studio-800 hover:bg-indigo-600/20 text-slate-300 hover:text-indigo-300 border border-slate-700/70 transition flex items-center gap-1.5 text-xs font-medium">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+          </svg>
+          <span class="hidden sm:inline">Drive</span>
+        </button>
+      </div>
+
+      <!-- Add Feed / Local Audio Loader -->
+      <div class="p-4 border-b border-slate-800/80 space-y-2.5 bg-studio-900/60">
+        <div class="flex gap-2">
+          <input id="rssInput" type="url" placeholder="Paste RSS feed URL (Patreon, Substack, XML)..." class="flex-1 bg-studio-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none" />
+          <button id="loadRssBtn" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition shrink-0">
+            Fetch
+          </button>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <label class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-studio-800 hover:bg-studio-700 border border-slate-700/70 text-xs font-medium text-slate-300 cursor-pointer transition">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            <span>Load Local MP3 / M4A / WAV</span>
+            <input id="localAudioInput" type="file" accept="audio/*" class="hidden" />
+          </label>
+          <button id="openShowRulesBtn" title="Per-Podcast Custom Rules" class="p-2 rounded-xl bg-studio-800 hover:bg-studio-700 border border-slate-700/70 text-slate-300 transition">
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Library / Queue Tabs -->
+      <div class="px-4 pt-3 flex items-center justify-between border-b border-slate-800/80">
+        <div class="flex gap-4">
+          <button data-side-tab="episodes" class="side-tab pb-2.5 text-xs font-semibold border-b-2 border-indigo-500 text-white">Episodes (<span id="episodeCount">2</span>)</button>
+          <button data-side-tab="queue" class="side-tab pb-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200">Up Next (<span id="queueCount">2</span>)</button>
+        </div>
+        <div class="flex items-center gap-1.5 pb-2">
+          <label class="text-[11px] text-slate-400 hover:text-indigo-300 cursor-pointer px-1.5 py-0.5 rounded bg-studio-800 border border-slate-700/60" title="Import OPML Subscriptions">
+            Import OPML
+            <input id="opmlImportInput" type="file" accept=".opml,.xml" class="hidden" />
+          </label>
+          <button id="opmlExportBtn" class="text-[11px] text-slate-400 hover:text-emerald-300 px-1.5 py-0.5 rounded bg-studio-800 border border-slate-700/60" title="Export OPML">
+            Export
+          </button>
+        </div>
+      </div>
+
+      <!-- Scrollable List Area -->
+      <div id="sidebarListContainer" class="flex-1 overflow-y-auto p-3 space-y-2.5 max-h-[340px] lg:max-h-none">
+        <!-- Populated dynamically by JS -->
+      </div>
+
+      <!-- Telemetry / Session Stats Footer -->
+      <div class="p-3.5 bg-studio-950/90 border-t border-slate-800/80 grid grid-cols-3 gap-2 text-center">
+        <div class="p-2 rounded-xl bg-studio-900 border border-slate-800/70">
+          <div id="statAdsSkipped" class="font-mono text-sm font-bold text-amber-400">0</div>
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Ads Skipped</div>
+        </div>
+        <div class="p-2 rounded-xl bg-studio-900 border border-slate-800/70">
+          <div id="statAdTimeSaved" class="font-mono text-sm font-bold text-rose-400">0s</div>
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Ad Time Saved</div>
+        </div>
+        <div class="p-2 rounded-xl bg-studio-900 border border-slate-800/70">
+          <div id="statSilenceSaved" class="font-mono text-sm font-bold text-emerald-400">0.0s</div>
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Silence Cut</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN STAGE: Now Playing, Live Waveform, Smart Timeline & DSP Deck -->
+    <main class="flex-1 flex flex-col min-w-0 bg-studio-950">
+
+      <!-- Top Status & Quick Toggles Bar -->
+      <header class="px-4 sm:px-6 py-3.5 border-b border-slate-800/80 bg-studio-900/40 flex flex-wrap items-center justify-between gap-3">
+        <!-- Ad Shield & Intro Skip Master Switches -->
+        <div class="flex flex-wrap items-center gap-2.5">
+          <label class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 cursor-pointer select-none">
+            <input id="autoSkipAdsToggle" type="checkbox" checked class="accent-amber-500 w-4 h-4 rounded" />
+            <span class="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clip-rule="evenodd"/></svg>
+              Auto-Skip Commercials
+            </span>
+          </label>
+
+          <label class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer select-none">
+            <input id="autoSkipIntroToggle" type="checkbox" checked class="accent-sky-500 w-4 h-4 rounded" />
+            <span class="text-xs font-semibold text-sky-300">Skip Intro / Outro</span>
+          </label>
+        </div>
+
+        <!-- Sleep Timer & Bookmark Action -->
+        <div class="flex items-center gap-2">
+          <!-- Sleep Timer Dropdown + Extend -->
+          <div class="flex items-center bg-studio-850 border border-slate-800 rounded-xl p-1">
+            <svg class="w-4 h-4 text-indigo-400 ml-2 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+            </svg>
+            <select id="sleepTimerSelect" class="bg-transparent text-xs text-slate-200 font-medium px-2 py-1 focus:outline-none">
+              <option value="0" class="bg-studio-900">Sleep: Off</option>
+              <option value="15" class="bg-studio-900">15 mins</option>
+              <option value="30" class="bg-studio-900">30 mins</option>
+              <option value="45" class="bg-studio-900">45 mins</option>
+              <option value="eoe" class="bg-studio-900">End of Episode</option>
+            </select>
+            <span id="sleepCountdownBadge" class="hidden font-mono text-[11px] px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 mr-1"></span>
+            <button id="extendSleepBtn" class="hidden text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition">+15m</button>
+          </div>
+
+          <!-- One-Tap Bookmark -->
+          <button id="quickBookmarkBtn" class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-studio-800 hover:bg-studio-700 border border-slate-700 text-xs font-semibold text-slate-200 transition">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+            </svg>
+            <span>Bookmark</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Episode Hero & Live Audio Visualizer -->
+      <section class="p-4 sm:p-6 space-y-5">
+        <div class="flex flex-col md:flex-row gap-5 items-start md:items-center">
+          <!-- Podcast Cover Art -->
+          <div id="coverArtBox" class="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 p-0.5 shadow-xl shadow-indigo-950/60 shrink-0">
+            <div class="w-full h-full rounded-[14px] bg-studio-900 flex flex-col items-center justify-center p-3 text-center relative overflow-hidden">
+              <div id="coverEmoji" class="text-3xl sm:text-4xl mb-1">🎙️</div>
+              <span id="coverBadge" class="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/10 text-slate-200">HI-RES</span>
+            </div>
+          </div>
+
+          <!-- Metadata & Active Segment Indicator -->
+          <div class="flex-1 min-w-0 space-y-1.5">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="podcastShowName" class="text-xs font-bold uppercase tracking-wider text-indigo-400">Tech Frontier Weekly</span>
+              <span class="text-slate-600">•</span>
+              <span id="activeChapterPill" class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                Segment: Main Discussion
+              </span>
+              <span id="smartSpeedStatusPill" class="hidden text-xs font-mono px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                ⚡ Silence Boost 2.2x
+              </span>
+            </div>
+            <h2 id="episodeTitle" class="text-xl sm:text-2xl font-extrabold text-white leading-tight truncate">
+              Ep. 142: Inside Neural Audio Codecs & AI Radio
+            </h2>
+            <p id="episodeSubtitle" class="text-xs sm:text-sm text-slate-400 line-clamp-2">
+              Procedural multi-segment demo stream with embedded Intro Jingle, Host Dialogue, 2 Commercial Breaks, and Deep-Dive Discussion.
+            </p>
+          </div>
+        </div>
+
+        <!-- Live Frequency / Waveform Visualizer Canvas -->
+        <div class="relative rounded-2xl bg-studio-900 border border-slate-800/90 p-3 overflow-hidden">
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1.5 px-1">
+            <div class="flex items-center gap-3">
+              <span class="flex items-center gap-1.5">
+                <span id="livePulseDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+                <span id="dspStatusText" class="font-mono">DSP Ready</span>
+              </span>
+              <span id="compressorMeter" class="hidden sm:inline font-mono text-emerald-400">Compressor GR: 0.0 dB</span>
+            </div>
+            <div class="flex items-center gap-3 font-mono">
+              <span>Effective Speed: <strong id="effectiveSpeedReadout" class="text-indigo-400">1.00x</strong></span>
+              <button id="markAdHereBtn" class="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition">
+                + Mark 15s Ad Here
+              </button>
+            </div>
+          </div>
+          <canvas id="visualizerCanvas" class="w-full h-20 rounded-xl bg-studio-950/80 block"></canvas>
+        </div>
+
+        <!-- Intelligent Segment-Mapped Scrubber Timeline -->
+        <div class="space-y-2">
+          <!-- Legend & Manual Ad Skip Button -->
+          <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+            <div class="flex items-center gap-3">
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500 inline-block"></span> Intro/Outro</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block"></span> Content</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm ad-stripe inline-block"></span> Detected Ad</span>
+            </div>
+            <button id="skipCurrentAdBtn" class="hidden px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition">
+              ⏭ Skip Commercial Now
+            </button>
+          </div>
+
+          <!-- Interactive Timeline Track -->
+          <div id="timelineWrapper" class="relative h-9 bg-studio-900 rounded-xl border border-slate-800 cursor-pointer select-none overflow-hidden group">
+            <!-- Segment Overlay Blocks (Intro, Content, Ads) -->
+            <div id="timelineSegmentsLayer" class="absolute inset-0 flex pointer-events-none"></div>
+            <!-- Chapter Tick Markers -->
+            <div id="timelineChaptersLayer" class="absolute inset-0 pointer-events-none"></div>
+            <!-- Bookmark Pins -->
+            <div id="timelineBookmarksLayer" class="absolute inset-0 pointer-events-none"></div>
+            <!-- Progress Fill -->
+            <div id="timelineProgressFill" class="absolute top-0 bottom-0 left-0 bg-white/15 border-r-2 border-white pointer-events-none" style="width: 0%"></div>
+            <!-- Hover Time Tooltip -->
+            <div id="timelineHoverTooltip" class="hidden absolute top-1 px-1.5 py-0.5 rounded bg-slate-950/90 text-[10px] font-mono text-white pointer-events-none border border-slate-700">00:00</div>
+          </div>
+
+          <!-- Time Readouts -->
+          <div class="flex items-center justify-between font-mono text-xs text-slate-400">
+            <span id="currentTimeLabel">00:00</span>
+            <span id="remainingTimeLabel">-00:00</span>
+          </div>
+        </div>
+
+        <!-- Transport Controls & Customizable Skip Intervals -->
+        <div class="flex flex-wrap items-center justify-between gap-4 pt-1">
+          <!-- Back Skip Interval Selector + Button -->
+          <div class="flex items-center gap-1.5">
+            <select id="skipBackInterval" aria-label="Backward skip interval" class="bg-studio-900 border border-slate-800 rounded-xl px-2 py-2 text-xs font-mono text-slate-300 focus:outline-none">
+              <option value="5">-5s</option>
+              <option value="10">-10s</option>
+              <option value="15" selected>-15s</option>
+              <option value="30">-30s</option>
+            </select>
+            <button id="skipBackBtn" class="p-3 rounded-2xl bg-studio-850 hover:bg-studio-800 border border-slate-700/80 text-slate-200 transition active:scale-95" title="Skip Backward">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Center Play / Pause & Prev / Next Episode -->
+          <div class="flex items-center gap-3 sm:gap-4">
+            <button id="prevChapterBtn" title="Previous Chapter" class="p-2.5 rounded-xl bg-studio-900 hover:bg-studio-800 border border-slate-800 text-slate-300 transition">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+
+            <button id="playPauseBtn" class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center shadow-xl shadow-indigo-600/30 transition transform active:scale-95">
+              <svg id="playIcon" class="w-7 h-7 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              <svg id="pauseIcon" class="w-7 h-7 hidden" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+              </svg>
+            </button>
+
+            <button id="nextChapterBtn" title="Next Chapter" class="p-2.5 rounded-xl bg-studio-900 hover:bg-studio-800 border border-slate-800 text-slate-300 transition">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Forward Skip Button + Interval Selector -->
+          <div class="flex items-center gap-1.5">
+            <button id="skipFwdBtn" class="p-3 rounded-2xl bg-studio-850 hover:bg-studio-800 border border-slate-700/80 text-slate-200 transition active:scale-95" title="Skip Forward">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" />
+              </svg>
+            </button>
+            <select id="skipFwdInterval" aria-label="Forward skip interval" class="bg-studio-900 border border-slate-800 rounded-xl px-2 py-2 text-xs font-mono text-slate-300 focus:outline-none">
+              <option value="15">+15s</option>
+              <option value="30" selected>+30s</option>
+              <option value="45">+45s</option>
+              <option value="60">+60s</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Studio Audio DSP Rack: Speed, Smart Silence Trim, Voice Boost -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+          <!-- Variable Speed Card -->
+          <div class="p-3.5 rounded-2xl bg-studio-900 border border-slate-800/90 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-300">Playback Speed</span>
+              <span id="baseSpeedLabel" class="font-mono text-xs font-bold text-indigo-400">1.00x</span>
+            </div>
+            <input id="speedSlider" type="range" min="0.5" max="3.0" step="0.05" value="1.0" class="w-full" />
+            <div class="flex items-center justify-between gap-1">
+              <button data-speed="1.0" class="speed-preset flex-1 py-1 rounded-lg bg-studio-850 hover:bg-studio-800 text-[11px] font-mono text-slate-300 border border-slate-800">1.0x</button>
+              <button data-speed="1.25" class="speed-preset flex-1 py-1 rounded-lg bg-studio-850 hover:bg-studio-800 text-[11px] font-mono text-slate-300 border border-slate-800">1.25x</button>
+              <button data-speed="1.5" class="speed-preset flex-1 py-1 rounded-lg bg-studio-850 hover:bg-studio-800 text-[11px] font-mono text-slate-300 border border-slate-800">1.5x</button>
+              <button data-speed="2.0" class="speed-preset flex-1 py-1 rounded-lg bg-studio-850 hover:bg-studio-800 text-[11px] font-mono text-slate-300 border border-slate-800">2.0x</button>
+            </div>
+          </div>
+
+          <!-- Smart Speed (Silence Trimming) Card -->
+          <div class="p-3.5 rounded-2xl bg-studio-900 border border-slate-800/90 flex flex-col justify-between space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span>Smart Silence Trim</span>
+                  <span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono">RMS</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-0.5">Accelerates pauses to 2.2x without clipping words.</p>
+              </div>
+              <input id="smartSilenceToggle" type="checkbox" checked class="accent-purple-500 w-4 h-4 mt-0.5 rounded cursor-pointer" />
+            </div>
+            <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800/80">
+              <span class="text-slate-400">Threshold:</span>
+              <select id="silenceThresholdSelect" class="bg-studio-850 border border-slate-700/70 rounded-lg px-2 py-0.5 font-mono text-slate-200 focus:outline-none">
+                <option value="0.015">Gentle (-36 dB)</option>
+                <option value="0.028" selected>Balanced (-31 dB)</option>
+                <option value="0.045">Aggressive (-27 dB)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Voice Boost / Volume Leveling Card -->
+          <div class="p-3.5 rounded-2xl bg-studio-900 border border-slate-800/90 flex flex-col justify-between space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span>Voice Boost & Leveler</span>
+                  <span class="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">EQ+DRC</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-0.5">Normalizes quiet guests & boosts 2.8kHz vocal clarity.</p>
+              </div>
+              <input id="voiceBoostToggle" type="checkbox" checked class="accent-emerald-500 w-4 h-4 mt-0.5 rounded cursor-pointer" />
+            </div>
+            <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800/80">
+              <span class="text-slate-400">Master Gain:</span>
+              <div class="flex items-center gap-2 w-32">
+                <input id="volumeSlider" type="range" min="0" max="1.5" step="0.05" value="1.0" class="w-full" />
+                <span id="volumeLabel" class="font-mono text-slate-300 w-8 text-right">100%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BOTTOM DRAWER: Chapters, Synced Transcript, Ad Scanner Diagnostics, Show Notes & Bookmarks -->
+      <section class="flex-1 border-t border-slate-800/80 bg-studio-900/50 flex flex-col min-h-[290px]">
+        <!-- Drawer Navigation Tabs -->
+        <div class="px-4 sm:px-6 border-b border-slate-800/80 flex items-center gap-1 sm:gap-2 overflow-x-auto">
+          <button data-drawer-tab="transcript" class="drawer-tab px-3 py-3 text-xs font-semibold border-b-2 border-indigo-500 text-white whitespace-nowrap">
+            Synced Transcript
+          </button>
+          <button data-drawer-tab="chapters" class="drawer-tab px-3 py-3 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap">
+            Chapters (<span id="chapterCountBadge">0</span>)
+          </button>
+          <button data-drawer-tab="adscanner" class="drawer-tab px-3 py-3 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap flex items-center gap-1.5">
+            <span>Ad Scanner & Segments</span>
+            <span id="detectedAdsBadge" class="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px]">0</span>
+          </button>
+          <button data-drawer-tab="bookmarks" class="drawer-tab px-3 py-3 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap">
+            Bookmarks (<span id="bookmarkCountBadge">0</span>)
+          </button>
+          <button data-drawer-tab="shownotes" class="drawer-tab px-3 py-3 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap">
+            Show Notes
+          </button>
+        </div>
+
+        <!-- Drawer Content Panels -->
+        <div class="p-4 sm:p-6 flex-1 overflow-y-auto max-h-[360px]">
+          <!-- 1. Synced Transcript Panel -->
+          <div id="panel-transcript" class="drawer-panel space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <input id="transcriptSearchInput" type="search" placeholder="Search inside episode transcript or jump to keywords..." class="w-full sm:w-80 bg-studio-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none" />
+              <span class="text-[11px] text-slate-400">Click any line to seek • Red blocks indicate detected commercials</span>
+            </div>
+            <div id="transcriptLinesList" class="space-y-1.5"></div>
+          </div>
+
+          <!-- 2. Chapters Panel -->
+          <div id="panel-chapters" class="drawer-panel hidden space-y-2"></div>
+
+          <!-- 3. Ad Scanner & Diagnostics Panel -->
+          <div id="panel-adscanner" class="drawer-panel hidden space-y-4">
+            <div class="p-3.5 rounded-2xl bg-studio-950 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 class="text-xs font-bold text-white">Acoustic + NLP Sponsor Detection Engine</h4>
+                <p id="scannerSummaryText" class="text-[11px] text-slate-400 mt-0.5">Analyzes RMS loudness shifts, stereo/music bed transitions, and sponsor keyword density.</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <select id="adSensitivitySelect" class="bg-studio-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-200">
+                  <option value="low">Conservative</option>
+                  <option value="medium" selected>Balanced</option>
+                  <option value="high">Aggressive</option>
+                </select>
+                <button id="rescanAdsBtn" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
+                  Re-Scan Audio
+                </button>
+              </div>
+            </div>
+            <div id="detectedSegmentsList" class="space-y-2"></div>
+          </div>
+
+          <!-- 4. Bookmarks Panel -->
+          <div id="panel-bookmarks" class="drawer-panel hidden space-y-3">
+            <div class="flex gap-2">
+              <input id="bookmarkNoteInput" type="text" placeholder="Add a note for current timestamp..." class="flex-1 bg-studio-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500" />
+              <button id="saveBookmarkNoteBtn" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition">
+                Save Pin
+              </button>
+            </div>
+            <div id="bookmarksList" class="space-y-2"></div>
+          </div>
+
+          <!-- 5. Show Notes Panel -->
+          <div id="panel-shownotes" class="drawer-panel hidden prose prose-invert max-w-none text-xs sm:text-sm text-slate-300 space-y-2"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- CAR / DRIVING MODE FULLSCREEN OVERLAY -->
+  <div id="carModeModal" class="hidden fixed inset-0 z-50 bg-black text-white flex flex-col justify-between p-6 sm:p-10 select-none">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-sm">
+          🛡️ AD-SHIELD ACTIVE
+        </span>
+        <span id="carModeSpeedBadge" class="px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-mono text-sm">
+          1.00x
+        </span>
+      </div>
+      <button id="closeCarModeBtn" class="px-5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-base border border-slate-600">
+        Exit Drive Mode
+      </button>
+    </div>
+
+    <div class="text-center space-y-3 my-auto max-w-2xl mx-auto">
+      <div id="carShowName" class="text-indigo-400 font-bold uppercase tracking-widest text-sm sm:text-base">TECH FRONTIER WEEKLY</div>
+      <h2 id="carEpisodeTitle" class="text-2xl sm:text-4xl font-extrabold leading-tight">Ep. 142: Inside Neural Audio Codecs</h2>
+      <div id="carTimeDisplay" class="font-mono text-3xl sm:text-5xl font-bold text-slate-300 pt-2">00:00 / 00:00</div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4 sm:gap-6 max-w-3xl w-full mx-auto">
+      <button id="carSkipBackBtn" class="h-28 sm:h-36 rounded-3xl bg-slate-900 active:bg-slate-800 border-2 border-slate-700 flex flex-col items-center justify-center gap-1 text-2xl sm:text-3xl font-extrabold">
+        <span>↺</span>
+        <span class="text-sm sm:text-base font-mono text-slate-400">-15 SEC</span>
+      </button>
+      <button id="carPlayPauseBtn" class="h-28 sm:h-36 rounded-3xl bg-indigo-600 active:bg-indigo-500 flex flex-col items-center justify-center gap-1 text-3xl sm:text-4xl font-extrabold shadow-2xl shadow-indigo-600/40">
+        <span id="carPlayLabel">PLAY</span>
+      </button>
+      <button id="carSkipFwdBtn" class="h-28 sm:h-36 rounded-3xl bg-slate-900 active:bg-slate-800 border-2 border-slate-700 flex flex-col items-center justify-center gap-1 text-2xl sm:text-3xl font-extrabold">
+        <span>↻</span>
+        <span class="text-sm sm:text-base font-mono text-slate-400">+30 SEC</span>
+      </button>
+    </div>
+
+    <div class="max-w-3xl w-full mx-auto pt-4">
+      <button id="carBookmarkBtn" class="w-full py-5 rounded-2xl bg-emerald-600/20 border-2 border-emerald-500/50 text-emerald-300 font-bold text-lg sm:text-xl active:bg-emerald-600/30">
+        🔖 Tap Anywhere Here to Bookmark Timestamp
+      </button>
+    </div>
+  </div>
+
+  <!-- PER-SHOW CUSTOM RULES MODAL -->
+  <div id="showRulesModal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-studio-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-bold text-base text-white">Per-Podcast Automation Rules</h3>
+        <button id="closeShowRulesBtn" class="text-slate-400 hover:text-white text-lg">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Active Show</label>
+          <div id="rulesShowName" class="font-bold text-indigo-400 text-sm">Tech Frontier Weekly</div>
+        </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Default Playback Speed for this Show</label>
+          <input id="ruleDefaultSpeed" type="number" step="0.05" min="0.5" max="3.0" value="1.0" class="w-full bg-studio-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono" />
+        </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">Auto-Skip First (Seconds of Intro)</label>
+          <input id="ruleSkipIntroSec" type="number" step="1" min="0" max="300" value="8" class="w-full bg-studio-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono" />
+        </div>
+        <div class="flex items-center justify-between pt-1">
+          <span class="text-slate-300 font-medium">Auto-Skip Detected Sponsor Breaks</span>
+          <input id="ruleAutoAdSkip" type="checkbox" checked class="accent-amber-500 w-4 h-4" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+        <button id="saveShowRulesBtn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">Apply Rules</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * CastFlow Pro — Complete Client-Side Podcast Studio & Ad-Skipping Engine
+     * Architecture:
+     * 1. Procedural WAV Synthesizer: Builds 2 offline-ready podcast episodes with realistic
+     *    intonation formants, pauses, upbeat jingles, and loud compressed sponsor ad beds.
+     * 2. Web Audio API DSP Pipeline: AudioElement -> Gain -> DynamicsCompressor -> Vocal EQ -> Analyser -> Destination.
+     * 3. Commercial Detection Engine: Combines acoustic RMS/crest-factor scanning of AudioBuffers
+     *    with NLP keyword scanning of transcripts/chapters/show notes.
+     * 4. Smart Silence Trimming: Monitors real-time RMS energy and smoothly boosts playbackRate during pauses.
+     */
+
+    // ==========================================
+    // 1. GLOBAL APPLICATION STATE
+    // ==========================================
+    const state = {
+      episodes: [],
+      queue: [],
+      currentEpisodeId: null,
+      isPlaying: false,
+      baseSpeed: 1.0,
+      effectiveSpeed: 1.0,
+      autoSkipAds: true,
+      autoSkipIntro: true,
+      smartSilence: true,
+      silenceThreshold: 0.028,
+      voiceBoost: true,
+      lastSkippedAdId: null,
+      suppressedAdIds: new Set(),
+      stats: {
+        adsSkipped: 0,
+        adTimeSaved: 0,
+        silenceSaved: 0
+      },
+      bookmarks: JSON.parse(localStorage.getItem('castflow_bookmarks') || '{}'),
+      showRules: JSON.parse(localStorage.getItem('castflow_show_rules') || '{}'),
+      sleepTimer: {
+        mode: '0',
+        endTime: null,
+        intervalId: null
+      }
+    };
+
+    // DOM References
+    const audio = document.getElementById('audioEngine');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const playIcon = document.getElementById('playIcon');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const visualizerCanvas = document.getElementById('visualizerCanvas');
+    const canvasCtx = visualizerCanvas.getContext('2d');
+
+    // Web Audio API Nodes
+    let audioCtx = null;
+    let sourceNode = null;
+    let compressorNode = null;
+    let vocalFilterNode = null;
+    let masterGainNode = null;
+    let analyserNode = null;
+    let timeDomainData = null;
+    let frequencyData = null;
+
+    // ==========================================
+    // 2. PROCEDURAL DEMO PODCAST GENERATOR (WAV)
+    // ==========================================
+    function encodeWavBlob(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, 1, true); // Mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+
+      let offset = 44;
+      for (let i = 0; i < samples.length; i++, offset += 2) {
+        const s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return new Blob([buffer], { type: 'audio/wav' });
+    }
+
+    /**
+     * Synthesizes a multi-segment podcast WAV buffer with distinct acoustic profiles:
+     * - Intro Jingle: Melodic arpeggio synth
+     * - Host Speech: Warm formant-modulated cadence with natural breath pauses (for Smart Silence Trim!)
+     * - Commercial Break: High-energy compressed upbeat ad bed + fast announcer cadence (detectable acoustically!)
+     */
+    function generateProceduralPodcastAudio(timelineSpec, seedOffset = 0) {
+      const sampleRate = 22050;
+      const totalDuration = timelineSpec[timelineSpec.length - 1].end;
+      const totalSamples = Math.floor(totalDuration * sampleRate);
+      const samples = new Float32Array(totalSamples);
+
+      const notes = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63];
+
+      for (const seg of timelineSpec) {
+        const startIdx = Math.floor(seg.start * sampleRate);
+        const endIdx = Math.min(totalSamples, Math.floor(seg.end * sampleRate));
+
+        for (let i = startIdx; i < endIdx; i++) {
+          const t = i / sampleRate;
+          const localT = t - seg.start;
+
+          if (seg.type === 'intro' || seg.type === 'outro') {
+            // Upbeat synth jingle
+            const noteFreq = notes[Math.floor(localT * 4) % notes.length] * (1 + seedOffset * 0.1);
+            const env = Math.exp(-((localT * 4) % 1) * 3.5);
+            const val = (Math.sin(2 * Math.PI * noteFreq * t) * 0.25 +
+                         Math.sin(2 * Math.PI * (noteFreq * 0.5) * t) * 0.18) * env;
+            samples[i] = val;
+          } else if (seg.type === 'ad') {
+            // Commercial break: louder compressed music bed + rapid pitch modulation
+            const beat = Math.sin(2 * Math.PI * 2.5 * localT) > 0 ? 1 : 0.65;
+            const chord = Math.sin(2 * Math.PI * 330 * t) * 0.18 +
+                          Math.sin(2 * Math.PI * 440 * t) * 0.16 +
+                          Math.sin(2 * Math.PI * 554.37 * t) * 0.14;
+            const announcer = Math.sin(2 * Math.PI * (165 + 45 * Math.sin(9 * t)) * t) *
+                              (0.28 * (0.5 + 0.5 * Math.sin(14 * localT)));
+            // Hard-limited loudness typical of radio/podcast ads
+            samples[i] = Math.tanh((chord * beat + announcer) * 2.1) * 0.62;
+          } else {
+            // Conversational host speech with natural pauses every ~3.2s so Smart Silence Trim activates visibly
+            const phraseCycle = (localT + seedOffset) % 3.4;
+            if (phraseCycle > 2.65) {
+              // Natural pause (near-silence)
+              samples[i] = (Math.random() - 0.5) * 0.004;
+            } else {
+              const syllableEnv = Math.max(0, Math.sin(Math.PI * ((phraseCycle * 3.8) % 1)));
+              const pitch = 115 + 28 * Math.sin(2.3 * t + seedOffset) + 12 * Math.cos(5.1 * t);
+              const voice = Math.sin(2 * Math.PI * pitch * t) * 0.24 +
+                            Math.sin(2 * Math.PI * pitch * 2 * t) * 0.12 +
+                            Math.sin(2 * Math.PI * pitch * 3 * t) * 0.06;
+              samples[i] = voice * syllableEnv;
+            }
+          }
+        }
+      }
+
+      const blob = encodeWavBlob(samples, sampleRate);
+      return URL.createObjectURL(blob);
+    }
+
+    function createBuiltInDemoEpisodes() {
+      const ep1Spec = [
+        { start: 0, end: 8, type: 'intro', label: 'Intro Theme Jingle' },
+        { start: 8, end: 26, type: 'content', label: 'Welcome & Neural Audio News' },
+        { start: 26, end: 40, type: 'ad', label: 'Sponsor Break: CloudHost Pro' },
+        { start: 40, end: 64, type: 'content', label: 'Deep Dive: Real-Time DSP & Silence Removal' },
+        { start: 64, end: 76, type: 'ad', label: 'Mid-Roll Ad: AeroBrew Coffee' },
+        { start: 76, end: 92, type: 'content', label: 'Listener Q&A & Key Takeaways' },
+        { start: 92, end: 98, type: 'outro', label: 'Closing Credits' }
+      ];
+
+      const ep2Spec = [
+        { start: 0, end: 7, type: 'intro', label: 'Show Opener' },
+        { start: 7, end: 24, type: 'content', label: 'Designing Low-Latency Interfaces' },
+        { start: 24, end: 37, type: 'ad', label: 'Sponsor Break: NoteSync AI' },
+        { start: 37, end: 58, type: 'content', label: 'Psychology of Variable Playback Speeds' },
+        { start: 58, end: 64, type: 'outro', label: 'Outro Music' }
+      ];
+
+      const ep1 = {
+        id: 'demo-ep-1',
+        showName: 'Tech Frontier Weekly',
+        title: 'Ep. 142: Inside Neural Audio Codecs & AI Radio',
+        subtitle: 'How modern DSP algorithms trim dead air, level dialogue, and automatically detect commercial breaks.',
+        emoji: '🎙️',
+        duration: 98,
+        audioUrl: generateProceduralPodcastAudio(ep1Spec, 0),
+        segments: ep1Spec.map((s, idx) => ({
+          id: `ep1-seg-${idx}`,
+          ...s,
+          confidence: s.type === 'ad' ? 0.96 : 0.99,
+          reason: s.type === 'ad' ? 'Acoustic loudness spike + Sponsor keyword match' : 'Verified program segment'
+        })),
+        chapters: [
+          { start: 0, title: 'Intro & Cold Open' },
+          { start: 8, title: 'Neural Audio Codecs Explained' },
+          { start: 26, title: 'Sponsor Break (Auto-Skippable)' },
+          { start: 40, title: 'How Smart Silence Trimming Works' },
+          { start: 64, title: 'Mid-Roll Sponsor Message' },
+          { start: 76, title: 'Listener Questions & Wrap-up' }
+        ],
+        transcript: [
+          { time: 0, text: '[Upbeat Synth Intro Jingle]', isAd: false },
+          { time: 8, text: 'Welcome back to Tech Frontier Weekly! Today we are exploring browser-based digital signal processing.', isAd: false },
+          { time: 16, text: 'Notice how natural pauses between sentences are automatically accelerated when Smart Silence Trim is enabled.', isAd: false },
+          { time: 26, text: 'This episode is brought to you by CloudHost Pro! Use promo code FRONTIER20 at checkout for 20% off.', isAd: true },
+          { time: 33, text: 'Deploy your apps in seconds with CloudHost Pro — sponsor of today’s show.', isAd: true },
+          { time: 40, text: 'And we are back! Let’s dive into DynamicsCompressorNode and why volume leveling saves your ears.', isAd: false },
+          { time: 52, text: 'By boosting presence around 2.8 kilohertz, spoken word remains crisp even at 2.0x playback speed.', isAd: false },
+          { time: 64, text: 'Quick word from our sponsor AeroBrew Coffee. Visit aerobrew.example.com and use code TECH for free shipping.', isAd: true },
+          { time: 76, text: 'Thanks for tuning in! Check out the chapters tab or drop a timestamped bookmark below.', isAd: false },
+          { time: 92, text: '[Closing Theme Music]', isAd: false }
+        ],
+        showNotes: `
+          <h3 class="text-white font-bold text-base">Episode Overview</h3>
+          <p>In Episode 142, we unpack how client-side Web Audio API graphs power studio-grade podcast players without server roundtrips.</p>
+          <h4 class="text-indigo-300 font-semibold mt-3">Timestamps & Topics</h4>
+          <ul class="list-disc pl-5 space-y-1">
+            <li><button onclick="seekTo(8)" class="text-indigo-400 underline font-mono">00:08</button> — Neural Audio Codecs & Perceptual Coding</li>
+            <li><button onclick="seekTo(40)" class="text-indigo-400 underline font-mono">00:40</button> — Real-Time RMS Silence Detection</li>
+            <li><button onclick="seekTo(76)" class="text-indigo-400 underline font-mono">01:16</button> — Listener Q&A on Podcasting 2.0</li>
+          </ul>
+        `
+      };
+
+      const ep2 = {
+        id: 'demo-ep-2',
+        showName: 'Design Systems Daily',
+        title: 'Ep. 89: Tactile Audio Interfaces & Driving UX',
+        subtitle: 'Designing zero-distraction car modes, OPML portability, and acoustic ad-detection timelines.',
+        emoji: '🎛️',
+        duration: 64,
+        audioUrl: generateProceduralPodcastAudio(ep2Spec, 1.3),
+        segments: ep2Spec.map((s, idx) => ({
+          id: `ep2-seg-${idx}`,
+          ...s,
+          confidence: s.type === 'ad' ? 0.94 : 0.98,
+          reason: s.type === 'ad' ? 'Compressed music bed + Promo code pattern' : 'Main program dialogue'
+        })),
+        chapters: [
+          { start: 0, title: 'Opening Theme' },
+          { start: 7, title: 'Designing Low-Latency Audio Controls' },
+          { start: 24, title: 'Sponsor Break: NoteSync AI' },
+          { start: 37, title: 'The Cognitive Load of Speed Listening' }
+        ],
+        transcript: [
+          { time: 0, text: '[Design Systems Daily Intro]', isAd: false },
+          { time: 7, text: 'Good morning designers! Today we examine why podcast apps need oversized touch targets for driving mode.', isAd: false },
+          { time: 16, text: 'When you are behind the wheel, visual clutter is dangerous. High-contrast controls are essential.', isAd: false },
+          { time: 24, text: 'Today’s episode is sponsored by NoteSync AI. Use code DESIGN at checkout for a 30-day free trial.', isAd: true },
+          { time: 37, text: 'Back to the show—let’s talk about why 1.35x speed feels natural when pitch correction is active.', isAd: false },
+          { time: 58, text: '[Outro Theme]', isAd: false }
+        ],
+        showNotes: `
+          <h3 class="text-white font-bold text-base">About This Episode</h3>
+          <p>A practical look at ergonomics, dark-mode contrast ratios, and open RSS/OPML standards in modern media apps.</p>
+        `
+      };
+
+      return [ep1, ep2];
+    }
+
+    // ==========================================
+    // 3. WEB AUDIO API DSP GRAPH INITIALIZATION
+    // ==========================================
+    function initWebAudioGraph() {
+      if (audioCtx) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return;
+      }
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContextClass();
+
+      sourceNode = audioCtx.createMediaElementSource(audio);
+
+      // DynamicsCompressor for Volume Leveling / Voice Boost
+      compressorNode = audioCtx.createDynamicsCompressor();
+      compressorNode.threshold.value = -24;
+      compressorNode.knee.value = 18;
+      compressorNode.ratio.value = 6;
+      compressorNode.attack.value = 0.005;
+      compressorNode.release.value = 0.18;
+
+      // Vocal Presence Peaking EQ (~2.8kHz)
+      vocalFilterNode = audioCtx.createBiquadFilter();
+      vocalFilterNode.type = 'peaking';
+      vocalFilterNode.frequency.value = 2800;
+      vocalFilterNode.Q.value = 1.2;
+      vocalFilterNode.gain.value = 4.5;
+
+      masterGainNode = audioCtx.createGain();
+      masterGainNode.gain.value = parseFloat(document.getElementById('volumeSlider').value);
+
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 1024;
+      analyserNode.smoothingTimeConstant = 0.82;
+
+      timeDomainData = new Float32Array(analyserNode.fftSize);
+      frequencyData = new Uint8Array(analyserNode.frequencyBinCount);
+
+      updateDspRouting();
+    }
+
+    function updateDspRouting() {
+      if (!audioCtx || !sourceNode) return;
+      try {
+        sourceNode.disconnect();
+        compressorNode.disconnect();
+        vocalFilterNode.disconnect();
+        masterGainNode.disconnect();
+      } catch (_) {}
+
+      if (state.voiceBoost) {
+        sourceNode.connect(compressorNode);
+        compressorNode.connect(vocalFilterNode);
+        vocalFilterNode.connect(masterGainNode);
+      } else {
+        sourceNode.connect(masterGainNode);
+      }
+      masterGainNode.connect(analyserNode);
+      analyserNode.connect(audioCtx.destination);
+    }
+
+    // ==========================================
+    // 4. ACOUSTIC + NLP COMMERCIAL SCANNER ENGINE
+    // ==========================================
+    const AD_KEYWORDS = [
+      'brought to you by', 'sponsored by', 'promo code', 'use code', 'at checkout',
+      'squarespace', 'betterhelp', 'athletic greens', 'ag1', 'nordvpn', 'expressvpn',
+      'hellofresh', 'audible', 'free trial', 'percent off', '% off', 'sponsor', 'advertisement'
+    ];
+
+    /**
+     * Scans an AudioBuffer (for uploaded files or decoded streams) + Transcript/Chapters
+     * to detect commercial breaks automatically.
+     */
+    async function analyzeEpisodeForAds(episode, sensitivity = 'medium') {
+      const detectedSegments = [];
+      const duration = episode.duration || audio.duration || 60;
+
+      // 1. Transcript / Chapter Keyword Scan
+      if (episode.transcript && episode.transcript.length > 0) {
+        episode.transcript.forEach((line, idx) => {
+          const lower = line.text.toLowerCase();
+          const matchedKeyword = AD_KEYWORDS.find(kw => lower.includes(kw));
+          if (line.isAd || matchedKeyword) {
+            const nextTime = episode.transcript[idx + 1] ? episode.transcript[idx + 1].time : Math.min(duration, line.time + 12);
+            // Merge contiguous ad transcript blocks
+            const prev = detectedSegments[detectedSegments.length - 1];
+            if (prev && prev.type === 'ad' && Math.abs(prev.end - line.time) <= 2) {
+              prev.end = nextTime;
+            } else {
+              detectedSegments.push({
+                id: `nlp-ad-${idx}-${Date.now()}`,
+                start: line.time,
+                end: nextTime,
+                type: 'ad',
+                label: matchedKeyword ? `Sponsor Detected ("${matchedKeyword}")` : 'Commercial Break',
+                confidence: 0.95,
+                reason: `NLP Transcript Match: "${matchedKeyword || 'Ad Tag'}"`
+              });
+            }
+          }
+        });
+      }
+
+      // 2. Acoustic Buffer Scan (if episode has an ArrayBuffer or AudioBuffer from local upload)
+      if (episode.rawArrayBuffer && audioCtx) {
+        try {
+          const decoded = await audioCtx.decodeAudioData(episode.rawArrayBuffer.slice(0));
+          const channel = decoded.getChannelData(0);
+          const sr = decoded.sampleRate;
+          const windowSec = 2;
+          const windowSamples = sr * windowSec;
+          const rmsWindows = [];
+
+          for (let offset = 0; offset < channel.length; offset += windowSamples) {
+            let sumSq = 0;
+            let peak = 0;
+            const end = Math.min(channel.length, offset + windowSamples);
+            for (let i = offset; i < end; i++) {
+              const v = Math.abs(channel[i]);
+              sumSq += v * v;
+              if (v > peak) peak = v;
+            }
+            const rms = Math.sqrt(sumSq / (end - offset));
+            const crest = rms > 0 ? peak / rms : 0; // Lower crest factor = heavily compressed ad audio
+            rmsWindows.push({ time: offset / sr, rms, crest });
+          }
+
+          const avgRms = rmsWindows.reduce((a, b) => a + b.rms, 0) / (rmsWindows.length || 1);
+          const rmsMultiplier = sensitivity === 'high' ? 1.18 : sensitivity === 'low' ? 1.45 : 1.3;
+
+          let adStart = null;
+          for (const w of rmsWindows) {
+            const isCompressedLoud = w.rms > avgRms * rmsMultiplier && w.crest < 5.5;
+            if (isCompressedLoud && adStart === null && w.time > 5 && w.time < duration - 5) {
+              adStart = w.time;
+            } else if (!isCompressedLoud && adStart !== null) {
+              if (w.time - adStart >= 6) {
+                detectedSegments.push({
+                  id: `acoustic-ad-${Math.round(adStart)}`,
+                  start: adStart,
+                  end: w.time,
+                  type: 'ad',
+                  label: 'Acoustic Compressed Ad Bed',
+                  confidence: 0.84,
+                  reason: `RMS Loudness +${Math.round((rmsMultiplier - 1) * 100)}% & Low Crest Factor`
+                });
+              }
+              adStart = null;
+            }
+          }
+        } catch (err) {
+          console.warn('Acoustic scan fallback:', err);
+        }
+      }
+
+      // Rebuild full contiguous timeline (intro -> content -> ads -> outro)
+      if (detectedSegments.length > 0 || !episode.segments || episode.segments.length === 0) {
+        const sortedAds = detectedSegments.sort((a, b) => a.start - b.start);
+        const fullTimeline = [];
+        let cursor = 0;
+
+        if (duration > 15) {
+          fullTimeline.push({ id: 'seg-intro', start: 0, end: 8, type: 'intro', label: 'Intro Segment', confidence: 0.9, reason: 'Opening 8s intro window' });
+          cursor = 8;
+        }
+
+        for (const ad of sortedAds) {
+          if (ad.start > cursor) {
+            fullTimeline.push({ id: `seg-cnt-${cursor}`, start: cursor, end: ad.start, type: 'content', label: 'Main Episode Content', confidence: 0.99, reason: 'Normal conversational speech' });
+          }
+          fullTimeline.push(ad);
+          cursor = Math.max(cursor, ad.end);
+        }
+
+        if (cursor < duration) {
+          fullTimeline.push({ id: `seg-cnt-end`, start: cursor, end: duration, type: 'content', label: 'Main Episode Content', confidence: 0.99, reason: 'Normal conversational speech' });
+        }
+        episode.segments = fullTimeline;
+      }
+
+      return episode.segments;
+    }
+
+    // ==========================================
+    // 5. PLAYBACK, SMART SILENCE TRIM & AD SKIP LOOP
+    // ==========================================
+    function getCurrentEpisode() {
+      return state.episodes.find(e => e.id === state.currentEpisodeId) || state.episodes[0];
+    }
+
+    function loadEpisode(episodeId, autoPlay = false) {
+      const ep = state.episodes.find(e => e.id === episodeId);
+      if (!ep) return;
+
+      state.currentEpisodeId = ep.id;
+      state.lastSkippedAdId = null;
+      state.suppressedAdIds.clear();
+
+      // Apply per-show custom rules if configured
+      const rules = state.showRules[ep.showName];
+      if (rules) {
+        state.baseSpeed = rules.defaultSpeed || 1.0;
+        document.getElementById('speedSlider').value = state.baseSpeed;
+        document.getElementById('baseSpeedLabel').textContent = `${state.baseSpeed.toFixed(2)}x`;
+        state.autoSkipAds = rules.autoAdSkip !== undefined ? rules.autoAdSkip : state.autoSkipAds;
+        document.getElementById('autoSkipAdsToggle').checked = state.autoSkipAds;
+      }
+
+      audio.src = ep.audioUrl;
+      audio.preservesPitch = true;
+      audio.webkitPreservesPitch = true;
+      audio.playbackRate = state.baseSpeed;
+
+      // Update UI metadata
+      document.getElementById('podcastShowName').textContent = ep.showName;
+      document.getElementById('episodeTitle').textContent = ep.title;
+      document.getElementById('episodeSubtitle').textContent = ep.subtitle || '';
+      document.getElementById('coverEmoji').textContent = ep.emoji || '🎙️';
+      document.getElementById('carShowName').textContent = ep.showName;
+      document.getElementById('carEpisodeTitle').textContent = ep.title;
+
+      renderTimelineSegments();
+      renderChapters();
+      renderTranscript();
+      renderAdDiagnostics();
+      renderBookmarks();
+      renderShowNotes();
+      renderSidebar();
+
+      if (autoPlay) {
+        togglePlayPause(true);
+      } else {
+        updatePlayIcons(false);
+      }
+    }
+
+    async function togglePlayPause(forcePlay = null) {
+      initWebAudioGraph();
+      const shouldPlay = forcePlay !== null ? forcePlay : audio.paused;
+
+      if (shouldPlay) {
+        try {
+          await audio.play();
+          state.isPlaying = true;
+          updatePlayIcons(true);
+          document.getElementById('livePulseDot').className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+          document.getElementById('dspStatusText').textContent = 'DSP Active • 48kHz';
+        } catch (err) {
+          showToast('Click Play again to unlock browser audio context.', 'info');
+        }
+      } else {
+        audio.pause();
+        state.isPlaying = false;
+        updatePlayIcons(false);
+        document.getElementById('livePulseDot').className = 'w-2 h-2 rounded-full bg-slate-500';
+        document.getElementById('dspStatusText').textContent = 'DSP Paused';
+      }
+    }
+
+    function updatePlayIcons(playing) {
+      playIcon.classList.toggle('hidden', playing);
+      pauseIcon.classList.toggle('hidden', !playing);
+      document.getElementById('carPlayLabel').textContent = playing ? 'PAUSE' : 'PLAY';
+    }
+
+    function seekTo(seconds) {
+      const dur = audio.duration || getCurrentEpisode()?.duration || 0;
+      audio.currentTime = Math.max(0, Math.min(dur, seconds));
+      updateProgressUI();
+    }
+
+    // Real-time DSP & Auto-Skip Engine Loop
+    let lastFrameTime = performance.now();
+    function dspLoop(now) {
+      const dt = (now - lastFrameTime) / 1000;
+      lastFrameTime = now;
+
+      const ep = getCurrentEpisode();
+      const dur = audio.duration || ep?.duration || 1;
+      const cur = audio.currentTime || 0;
+
+      if (state.isPlaying && ep) {
+        // 1. Check Segment (Intro / Ad / Content)
+        const activeSeg = (ep.segments || []).find(s => cur >= s.start && cur < s.end - 0.15);
+        const skipAdBtn = document.getElementById('skipCurrentAdBtn');
+
+        if (activeSeg) {
+          const pill = document.getElementById('activeChapterPill');
+          pill.textContent = `Segment: ${activeSeg.label}`;
+
+          if (activeSeg.type === 'ad') {
+            pill.className = 'text-xs font-medium px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
+            skipAdBtn.classList.remove('hidden');
+
+            if (state.autoSkipAds && !state.suppressedAdIds.has(activeSeg.id) && state.lastSkippedAdId !== activeSeg.id) {
+              state.lastSkippedAdId = activeSeg.id;
+              const skippedSec = Math.max(1, Math.round(activeSeg.end - cur));
+              state.stats.adsSkipped += 1;
+              state.stats.adTimeSaved += skippedSec;
+              updateStatsUI();
+
+              const resumePoint = cur;
+              audio.currentTime = Math.min(dur - 0.2, activeSeg.end);
+
+              showToast(
+                `⏭ Skipped ${skippedSec}s commercial (${activeSeg.label})`,
+                'ad',
+                'Keep / Hear Ad',
+                () => {
+                  state.suppressedAdIds.add(activeSeg.id);
+                  audio.currentTime = resumePoint;
+                }
+              );
+            }
+          } else if ((activeSeg.type === 'intro' || activeSeg.type === 'outro') && state.autoSkipIntro && !state.suppressedAdIds.has(activeSeg.id)) {
+            pill.className = 'text-xs font-medium px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40';
+            skipAdBtn.classList.add('hidden');
+            const customIntroLimit = state.showRules[ep.showName]?.skipIntroSec;
+            const targetEnd = (activeSeg.type === 'intro' && customIntroLimit) ? Math.min(dur, customIntroLimit) : activeSeg.end;
+            if (cur < targetEnd - 0.3) {
+              state.suppressedAdIds.add(activeSeg.id);
+              audio.currentTime = Math.min(dur - 0.2, targetEnd);
+              showToast(`⏩ Skipped ${activeSeg.label}`, 'info');
+            }
+          } else {
+            pill.className = 'text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+            skipAdBtn.classList.add('hidden');
+          }
+        }
+
+        // 2. Smart Speed (RMS Silence Trimming)
+        if (analyserNode && timeDomainData) {
+          analyserNode.getFloatTimeDomainData(timeDomainData);
+          let sumSq = 0;
+          for (let i = 0; i < timeDomainData.length; i++) {
+            sumSq += timeDomainData[i] * timeDomainData[i];
+          }
+          const rms = Math.sqrt(sumSq / timeDomainData.length);
+
+          const smartPill = document.getElementById('smartSpeedStatusPill');
+          if (state.smartSilence && rms < state.silenceThreshold && (!activeSeg || activeSeg.type === 'content')) {
+            const boosted = Math.min(3.0, Math.max(state.baseSpeed * 1.65, 2.2));
+            audio.playbackRate = boosted;
+            state.effectiveSpeed = boosted;
+            smartPill.classList.remove('hidden');
+            smartPill.textContent = `⚡ Silence Trim ${boosted.toFixed(2)}x`;
+            if (dt > 0 && dt < 0.5) {
+              state.stats.silenceSaved += dt * (1 - state.baseSpeed / boosted);
+              document.getElementById('statSilenceSaved').textContent = `${state.stats.silenceSaved.toFixed(1)}s`;
+            }
+          } else {
+            audio.playbackRate = state.baseSpeed;
+            state.effectiveSpeed = state.baseSpeed;
+            smartPill.classList.add('hidden');
+          }
+          document.getElementById('effectiveSpeedReadout').textContent = `${state.effectiveSpeed.toFixed(2)}x`;
+
+          // Compressor Gain Reduction Meter
+          if (compressorNode && state.voiceBoost) {
+            const gr = compressorNode.reduction || 0;
+            document.getElementById('compressorMeter').textContent = `Compressor GR: ${gr.toFixed(1)} dB`;
+          }
+        }
+      }
+
+      drawVisualizer();
+      updateProgressUI();
+      requestAnimationFrame(dspLoop);
+    }
+
+    // ==========================================
+    // 6. CANVAS SPECTRUM VISUALIZER
+    // ==========================================
+    function resizeVisualizerCanvas() {
+      const rect = visualizerCanvas.parentElement.getBoundingClientRect();
+      visualizerCanvas.width = Math.max(280, rect.width - 24);
+      visualizerCanvas.height = 80;
+    }
+
+    function drawVisualizer() {
+      const w = visualizerCanvas.width;
+      const h = visualizerCanvas.height;
+      canvasCtx.clearRect(0, 0, w, h);
+
+      const barCount = 56;
+      const gap = 3;
+      const barWidth = (w - gap * (barCount - 1)) / barCount;
+
+      if (analyserNode && frequencyData && state.isPlaying) {
+        analyserNode.getByteFrequencyData(frequencyData);
+      }
+
+      for (let i = 0; i < barCount; i++) {
+        let val = 0.08;
+        if (state.isPlaying && frequencyData) {
+          const binIdx = Math.floor((i / barCount) * (frequencyData.length * 0.55));
+          val = Math.max(0.08, frequencyData[binIdx] / 255);
+        } else {
+          val = 0.08 + 0.04 * Math.sin(i * 0.35 + performance.now() * 0.002);
+        }
+
+        const barH = val * (h - 10);
+        const x = i * (barWidth + gap);
+        const y = (h - barH) / 2;
+
+        const grad = canvasCtx.createLinearGradient(0, y, 0, y + barH);
+        if (state.effectiveSpeed > state.baseSpeed + 0.1) {
+          grad.addColorStop(0, '#c084fc');
+          grad.addColorStop(1, '#6366f1');
+        } else {
+          grad.addColorStop(0, '#34d399');
+          grad.addColorStop(1, '#6366f1');
+        }
+
+        canvasCtx.fillStyle = grad;
+        canvasCtx.beginPath();
+        canvasCtx.roundRect(x, y, barWidth, barH, 3);
+        canvasCtx.fill();
+      }
+    }
+
+    // ==========================================
+    // 7. UI RENDERING HELPERS
+    // ==========================================
+    function formatTime(sec) {
+      if (!isFinite(sec) || sec < 0) return '00:00';
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function updateProgressUI() {
+      const ep = getCurrentEpisode();
+      const dur = audio.duration || ep?.duration || 1;
+      const cur = audio.currentTime || 0;
+      const pct = Math.min(100, Math.max(0, (cur / dur) * 100));
+
+      document.getElementById('timelineProgressFill').style.width = `${pct}%`;
+      document.getElementById('currentTimeLabel').textContent = formatTime(cur);
+      document.getElementById('remainingTimeLabel').textContent = `-${formatTime(Math.max(0, dur - cur))}`;
+      document.getElementById('carTimeDisplay').textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
+
+      // Highlight active transcript line
+      if (ep && ep.transcript) {
+        let activeIdx = 0;
+        for (let i = 0; i < ep.transcript.length; i++) {
+          if (cur >= ep.transcript[i].time) activeIdx = i;
+        }
+        document.querySelectorAll('.transcript-line').forEach((el, idx) => {
+          if (idx === activeIdx) {
+            el.classList.add('ring-1', 'ring-indigo-500', 'bg-indigo-500/15');
+          } else {
+            el.classList.remove('ring-1', 'ring-indigo-500', 'bg-indigo-500/15');
+          }
+        });
+      }
+    }
+
+    function renderTimelineSegments() {
+      const ep = getCurrentEpisode();
+      if (!ep) return;
+      const dur = audio.duration || ep.duration || 1;
+      const segLayer = document.getElementById('timelineSegmentsLayer');
+      const chapLayer = document.getElementById('timelineChaptersLayer');
+      const bmLayer = document.getElementById('timelineBookmarksLayer');
+
+      segLayer.innerHTML = '';
+      (ep.segments || []).forEach(seg => {
+        const widthPct = Math.max(0.5, ((seg.end - seg.start) / dur) * 100);
+        const div = document.createElement('div');
+        div.style.width = `${widthPct}%`;
+        div.title = `${seg.label} (${formatTime(seg.start)} - ${formatTime(seg.end)})`;
+        if (seg.type === 'ad') {
+          div.className = 'h-full ad-stripe opacity-85 border-x border-amber-300/40';
+        } else if (seg.type === 'intro' || seg.type === 'outro') {
+          div.className = 'h-full bg-sky-500/35 border-r border-sky-400/30';
+        } else {
+          div.className = 'h-full bg-emerald-500/20 border-r border-slate-800/40';
+        }
+        segLayer.appendChild(div);
+      });
+
+      chapLayer.innerHTML = '';
+      (ep.chapters || []).forEach(ch => {
+        const leftPct = (ch.start / dur) * 100;
+        const tick = document.createElement('div');
+        tick.style.left = `${leftPct}%`;
+        tick.className = 'absolute top-0 bottom-0 w-0.5 bg-white/40';
+        chapLayer.appendChild(tick);
+      });
+
+      bmLayer.innerHTML = '';
+      const epBookmarks = state.bookmarks[ep.id] || [];
+      epBookmarks.forEach(bm => {
+        const leftPct = (bm.time / dur) * 100;
+        const pin = document.createElement('div');
+        pin.style.left = `${leftPct}%`;
+        pin.className = 'absolute top-0 w-2 h-2 -ml-1 rounded-full bg-emerald-400 shadow';
+        bmLayer.appendChild(pin);
+      });
+    }
+
+    function renderTranscript() {
+      const ep = getCurrentEpisode();
+      const list = document.getElementById('transcriptLinesList');
+      const query = document.getElementById('transcriptSearchInput').value.toLowerCase().trim();
+      list.innerHTML = '';
+
+      if (!ep || !ep.transcript || ep.transcript.length === 0) {
+        list.innerHTML = `<p class="text-xs text-slate-500 italic">No timestamped transcript provided for this feed. Acoustic Ad Scanner is still active!</p>`;
+        return;
+      }
+
+      ep.transcript
+        .filter(line => !query || line.text.toLowerCase().includes(query))
+        .forEach(line => {
+          const btn = document.createElement('button');
+          btn.className = `transcript-line w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 ${
+            line.isAd
+              ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20'
+              : 'bg-studio-950/70 border-slate-800/80 hover:bg-studio-850'
+          }`;
+          btn.onclick = () => seekTo(line.time);
+          btn.innerHTML = `
+            <span class="font-mono text-[11px] px-1.5 py-0.5 rounded ${line.isAd ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-indigo-300'} shrink-0">
+              ${formatTime(line.time)}
+            </span>
+            <span class="text-xs ${line.isAd ? 'text-amber-200' : 'text-slate-300'} leading-relaxed flex-1">
+              ${line.isAd ? '<strong class="uppercase text-[10px] tracking-wider bg-amber-500 text-slate-950 px-1.5 py-0.2 rounded mr-1.5">Ad</strong>' : ''}
+              ${line.text}
+            </span>
+          `;
+          list.appendChild(btn);
+        });
+    }
+
+    function renderChapters() {
+      const ep = getCurrentEpisode();
+      const container = document.getElementById('panel-chapters');
+      const chapters = ep?.chapters || [];
+      document.getElementById('chapterCountBadge').textContent = chapters.length;
+      container.innerHTML = '';
+
+      if (chapters.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-500">No explicit chapters in metadata.</p>`;
+        return;
+      }
+
+      chapters.forEach((ch, i) => {
+        const item = document.createElement('button');
+        item.className = 'w-full flex items-center justify-between p-3 rounded-xl bg-studio-950 hover:bg-studio-850 border border-slate-800 text-left transition';
+        item.onclick = () => { seekTo(ch.start); if (!state.isPlaying) togglePlayPause(true); };
+        item.innerHTML = `
+          <div class="flex items-center gap-3">
+            <span class="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-300 font-mono text-xs flex items-center justify-center font-bold">${i + 1}</span>
+            <span class="text-xs font-semibold text-slate-200">${ch.title}</span>
+          </div>
+          <span class="font-mono text-xs text-slate-400">${formatTime(ch.start)}</span>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function renderAdDiagnostics() {
+      const ep = getCurrentEpisode();
+      const container = document.getElementById('detectedSegmentsList');
+      const segments = ep?.segments || [];
+      const ads = segments.filter(s => s.type === 'ad');
+      document.getElementById('detectedAdsBadge').textContent = ads.length;
+      container.innerHTML = '';
+
+      segments.forEach(seg => {
+        const isAd = seg.type === 'ad';
+        const row = document.createElement('div');
+        row.className = `p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
+          isAd ? 'bg-amber-500/10 border-amber-500/35' : 'bg-studio-950 border-slate-800'
+        }`;
+        row.innerHTML = `
+          <div class="space-y-0.5">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded font-bold ${
+                isAd ? 'bg-amber-500 text-slate-950' : seg.type === 'intro' ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300'
+              }">${seg.type}</span>
+              <span class="text-xs font-semibold text-white">${seg.label}</span>
+              <span class="font-mono text-[11px] text-slate-400">(${formatTime(seg.start)} → ${formatTime(seg.end)})</span>
+            </div>
+            <p class="text-[11px] text-slate-400">${seg.reason || 'Acoustic profile verified'}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="seekTo(${seg.start})" class="px-2.5 py-1 rounded-lg bg-studio-800 hover:bg-studio-700 text-[11px] text-slate-200">Jump</button>
+            <button onclick="toggleSegmentAdType('${seg.id}')" class="px-2.5 py-1 rounded-lg ${isAd ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/20 text-amber-300'} text-[11px] font-semibold">
+              ${isAd ? 'Mark as Content' : 'Mark as Ad'}
+            </button>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    window.toggleSegmentAdType = function(segId) {
+      const ep = getCurrentEpisode();
+      const seg = ep?.segments.find(s => s.id === segId);
+      if (!seg) return;
+      seg.type = seg.type === 'ad' ? 'content' : 'ad';
+      seg.label = seg.type === 'ad' ? 'User-Marked Commercial' : 'User-Verified Content';
+      renderTimelineSegments();
+      renderAdDiagnostics();
+      showToast(`Updated segment to ${seg.type.toUpperCase()}`, 'info');
+    };
+
+    function renderBookmarks() {
+      const ep = getCurrentEpisode();
+      const list = document.getElementById('bookmarksList');
+      const items = state.bookmarks[ep?.id] || [];
+      document.getElementById('bookmarkCountBadge').textContent = items.length;
+      list.innerHTML = '';
+
+      if (items.length === 0) {
+        list.innerHTML = `<p class="text-xs text-slate-500">No bookmarks yet. Tap Bookmark while listening to save a highlight!</p>`;
+        return;
+      }
+
+      items.forEach((bm, idx) => {
+        const div = document.createElement('div');
+        div.className = 'p-3 rounded-xl bg-studio-950 border border-slate-800 flex items-center justify-between gap-2';
+        div.innerHTML = `
+          <button onclick="seekTo(${bm.time})" class="flex items-center gap-3 text-left flex-1">
+            <span class="font-mono text-xs px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-bold">${formatTime(bm.time)}</span>
+            <span class="text-xs text-slate-200">${bm.note}</span>
+          </button>
+          <button onclick="deleteBookmark(${idx})" class="text-slate-500 hover:text-rose-400 text-xs px-2">✕</button>
+        `;
+        list.appendChild(div);
+      });
+    }
+
+    window.deleteBookmark = function(idx) {
+      const ep = getCurrentEpisode();
+      if (!ep || !state.bookmarks[ep.id]) return;
+      state.bookmarks[ep.id].splice(idx, 1);
+      localStorage.setItem('castflow_bookmarks', JSON.stringify(state.bookmarks));
+      renderBookmarks();
+      renderTimelineSegments();
+    };
+
+    function renderShowNotes() {
+      const ep = getCurrentEpisode();
+      document.getElementById('panel-shownotes').innerHTML = ep?.showNotes || `<p class="text-slate-400">No additional show notes available.</p>`;
+    }
+
+    let activeSideTab = 'episodes';
+    function renderSidebar() {
+      const container = document.getElementById('sidebarListContainer');
+      document.getElementById('episodeCount').textContent = state.episodes.length;
+      document.getElementById('queueCount').textContent = state.queue.length;
+      container.innerHTML = '';
+
+      const items = activeSideTab === 'episodes'
+        ? state.episodes
+        : state.queue.map(id => state.episodes.find(e => e.id === id)).filter(Boolean);
+
+      if (items.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-500 text-center py-6">Queue is empty.</p>`;
+        return;
+      }
+
+      items.forEach((ep, idx) => {
+        const isCurrent = ep.id === state.currentEpisodeId;
+        const adCount = (ep.segments || []).filter(s => s.type === 'ad').length;
+        const card = document.createElement('div');
+        card.className = `p-3 rounded-2xl border transition cursor-pointer ${
+          isCurrent
+            ? 'bg-indigo-600/15 border-indigo-500/60 shadow-lg shadow-indigo-950/30'
+            : 'bg-studio-850/70 hover:bg-studio-800 border-slate-800'
+        }`;
+        card.onclick = () => loadEpisode(ep.id, true);
+        card.innerHTML = `
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-xl bg-studio-900 border border-slate-700/70 flex items-center justify-center text-lg shrink-0">
+              ${ep.emoji || '🎧'}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-indigo-400 truncate">${ep.showName}</span>
+                <span class="font-mono text-[10px] text-slate-400">${formatTime(ep.duration)}</span>
+              </div>
+              <h3 class="text-xs font-bold text-white truncate mt-0.5">${ep.title}</h3>
+              <div class="flex items-center justify-between mt-2">
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono">
+                  🛡️ ${adCount} Ad${adCount === 1 ? '' : 's'} Mapped
+                </span>
+                ${activeSideTab === 'queue'
+                  ? `<button onclick="event.stopPropagation(); removeFromQueue(${idx})" class="text-[11px] text-slate-400 hover:text-rose-400 px-1.5">Remove</button>`
+                  : `<button onclick="event.stopPropagation(); addToQueue('${ep.id}')" class="text-[11px] text-slate-400 hover:text-emerald-300 px-1.5">+ Queue</button>`
+                }
+              </div>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    window.addToQueue = function(epId) {
+      if (!state.queue.includes(epId)) {
+        state.queue.push(epId);
+        renderSidebar();
+        showToast('Added to Up Next queue', 'info');
+      }
+    };
+
+    window.removeFromQueue = function(idx) {
+      state.queue.splice(idx, 1);
+      renderSidebar();
+    };
+
+    function updateStatsUI() {
+      document.getElementById('statAdsSkipped').textContent = state.stats.adsSkipped;
+      document.getElementById('statAdTimeSaved').textContent = `${state.stats.adTimeSaved}s`;
+    }
+
+    function showToast(message, type = 'info', actionLabel = null, actionCallback = null) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const colors = type === 'ad'
+        ? 'bg-slate-900/95 border-amber-500/60 text-amber-200'
+        : 'bg-slate-900/95 border-indigo-500/50 text-slate-100';
+
+      toast.className = `pointer-events-auto p-3.5 rounded-2xl border shadow-2xl flex items-center justify-between gap-3 text-xs font-medium transition-all ${colors}`;
+      toast.innerHTML = `<span>${message}</span>`;
+
+      if (actionLabel && actionCallback) {
+        const btn = document.createElement('button');
+        btn.className = 'px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shrink-0';
+        btn.textContent = actionLabel;
+        btn.onclick = () => {
+          actionCallback();
+          toast.remove();
+        };
+        toast.appendChild(btn);
+      }
+
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 5500);
+    }
+
+    // ==========================================
+    // 8. RSS FEED PARSER, LOCAL FILE LOADER & OPML
+    // ==========================================
+    document.getElementById('loadRssBtn').addEventListener('click', async () => {
+      const url = document.getElementById('rssInput').value.trim();
+      if (!url) return showToast('Enter a valid podcast RSS XML URL first.', 'info');
+
+      showToast('Fetching & parsing RSS feed...', 'info');
+      try {
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        const res = await fetch(proxyUrl);
+        const data = await res.json();
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(data.contents, 'text/xml');
+
+        const channelTitle = xml.querySelector('channel > title')?.textContent || 'Custom RSS Podcast';
+        const items = Array.from(xml.querySelectorAll('item')).slice(0, 5);
+
+        if (items.length === 0) throw new Error('No episodes found in feed');
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const enclosure = item.querySelector('enclosure');
+          const audioUrl = enclosure?.getAttribute('url');
+          if (!audioUrl) continue;
+
+          const title = item.querySelector('title')?.textContent || `Episode ${i + 1}`;
+          const desc = item.querySelector('description')?.textContent || '';
+          const newEp = {
+            id: `rss-${Date.now()}-${i}`,
+            showName: channelTitle,
+            title,
+            subtitle: desc.replace(/<[^>]*>?/gm, '').slice(0, 140),
+            emoji: '📡',
+            duration: 1800,
+            audioUrl,
+            segments: [],
+            chapters: [{ start: 0, title: 'Episode Start' }],
+            transcript: [],
+            showNotes: desc
+          };
+          await analyzeEpisodeForAds(newEp, document.getElementById('adSensitivitySelect').value);
+          state.episodes.unshift(newEp);
+          state.queue.unshift(newEp.id);
+        }
+
+        loadEpisode(state.episodes[0].id, false);
+        showToast(`Loaded ${items.length} episodes from "${channelTitle}"!`, 'info');
+      } catch (err) {
+        showToast('Could not fetch RSS feed (CORS or invalid XML). Try another feed or load a local audio file.', 'info');
+      }
+    });
+
+    document.getElementById('localAudioInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      initWebAudioGraph();
+      showToast(`Scanning "${file.name}" for commercials...`, 'info');
+
+      const arrayBuffer = await file.arrayBuffer();
+      const blobUrl = URL.createObjectURL(file);
+
+      const newEp = {
+        id: `local-${Date.now()}`,
+        showName: 'Local Studio Import',
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        subtitle: 'Analyzed via Web Audio Acoustic Commercial Scanner',
+        emoji: '💿',
+        duration: 0,
+        audioUrl: blobUrl,
+        rawArrayBuffer: arrayBuffer,
+        segments: [],
+        chapters: [{ start: 0, title: 'Start of File' }],
+        transcript: [],
+        showNotes: `<p>Local audio file: <strong>${file.name}</strong> (${(file.size / (1024 * 1024)).toFixed(2)} MB)</p>`
+      };
+
+      // Wait briefly for metadata duration
+      const tempAudio = new Audio(blobUrl);
+      tempAudio.addEventListener('loadedmetadata', async () => {
+        newEp.duration = tempAudio.duration || 120;
+        await analyzeEpisodeForAds(newEp, document.getElementById('adSensitivitySelect').value);
+        state.episodes.unshift(newEp);
+        state.queue.unshift(newEp.id);
+        loadEpisode(newEp.id, true);
+        const adsFound = newEp.segments.filter(s => s.type === 'ad').length;
+        showToast(`Acoustic scan complete: ${adsFound} ad break(s) mapped!`, 'info');
+      });
+    });
+
+    // OPML Export & Import
+    document.getElementById('opmlExportBtn').addEventListener('click', () => {
+      const uniqueShows = [...new Set(state.episodes.map(e => e.showName))];
+      const outlines = uniqueShows.map(s => `    <outline type="rss" text="${s}" title="${s}" xmlUrl="https://example.com/feed/${encodeURIComponent(s)}.xml" />`).join('\n');
+      const opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head><title>CastFlow Pro Subscriptions</title></head>\n  <body>\n${outlines}\n  </body>\n</opml>`;
+      const blob = new Blob([opml], { type: 'text/xml' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'castflow-subscriptions.opml';
+      a.click();
+      showToast('Exported castflow-subscriptions.opml', 'info');
+    });
+
+    document.getElementById('opmlImportInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const xml = new DOMParser().parseFromString(text, 'text/xml');
+      const outlines = xml.querySelectorAll('outline[xmlUrl], outline[text]');
+      showToast(`Parsed ${outlines.length} podcast subscription(s) from OPML!`, 'info');
+    });
+
+    // ==========================================
+    // 9. EVENT LISTENERS & INTERACTIONS
+    // ==========================================
+    playPauseBtn.addEventListener('click', () => togglePlayPause());
+    document.getElementById('carPlayPauseBtn').addEventListener('click', () => togglePlayPause());
+
+    document.getElementById('skipBackBtn').addEventListener('click', () => {
+      const delta = parseInt(document.getElementById('skipBackInterval').value, 10);
+      seekTo(audio.currentTime - delta);
+    });
+    document.getElementById('carSkipBackBtn').addEventListener('click', () => seekTo(audio.currentTime - 15));
+
+    document.getElementById('skipFwdBtn').addEventListener('click', () => {
+      const delta = parseInt(document.getElementById('skipFwdInterval').value, 10);
+      seekTo(audio.currentTime + delta);
+    });
+    document.getElementById('carSkipFwdBtn').addEventListener('click', () => seekTo(audio.currentTime + 30));
+
+    document.getElementById('prevChapterBtn').addEventListener('click', () => {
+      const ep = getCurrentEpisode();
+      if (!ep?.chapters) return;
+      const prev = [...ep.chapters].reverse().find(c => c.start < audio.currentTime - 2);
+      seekTo(prev ? prev.start : 0);
+    });
+
+    document.getElementById('nextChapterBtn').addEventListener('click', () => {
+      const ep = getCurrentEpisode();
+      if (!ep?.chapters) return;
+      const next = ep.chapters.find(c => c.start > audio.currentTime + 1);
+      if (next) seekTo(next.start);
+    });
+
+    // Speed Slider & Presets
+    const speedSlider = document.getElementById('speedSlider');
+    speedSlider.addEventListener('input', (e) => {
+      state.baseSpeed = parseFloat(e.target.value);
+      audio.playbackRate = state.baseSpeed;
+      document.getElementById('baseSpeedLabel').textContent = `${state.baseSpeed.toFixed(2)}x`;
+      document.getElementById('carModeSpeedBadge').textContent = `${state.baseSpeed.toFixed(2)}x`;
+    });
+
+    document.querySelectorAll('.speed-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const spd = parseFloat(btn.dataset.speed);
+        state.baseSpeed = spd;
+        speedSlider.value = spd;
+        audio.playbackRate = spd;
+        document.getElementById('baseSpeedLabel').textContent = `${spd.toFixed(2)}x`;
+        document.getElementById('carModeSpeedBadge').textContent = `${spd.toFixed(2)}x`;
+      });
+    });
+
+    // DSP Switches
+    document.getElementById('autoSkipAdsToggle').addEventListener('change', (e) => state.autoSkipAds = e.target.checked);
+    document.getElementById('autoSkipIntroToggle').addEventListener('change', (e) => state.autoSkipIntro = e.target.checked);
+    document.getElementById('smartSilenceToggle').addEventListener('change', (e) => state.smartSilence = e.target.checked);
+    document.getElementById('silenceThresholdSelect').addEventListener('change', (e) => state.silenceThreshold = parseFloat(e.target.value));
+    document.getElementById('voiceBoostToggle').addEventListener('change', (e) => {
+      state.voiceBoost = e.target.checked;
+      updateDspRouting();
+    });
+
+    document.getElementById('volumeSlider').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      document.getElementById('volumeLabel').textContent = `${Math.round(v * 100)}%`;
+      if (masterGainNode) masterGainNode.gain.value = v;
+      else audio.volume = Math.min(1, v);
+    });
+
+    // Manual Ad Skip & Mark Ad Here
+    document.getElementById('skipCurrentAdBtn').addEventListener('click', () => {
+      const ep = getCurrentEpisode();
+      const cur = audio.currentTime;
+      const ad = ep?.segments.find(s => s.type === 'ad' && cur >= s.start && cur < s.end);
+      if (ad) {
+        seekTo(ad.end);
+        showToast('Skipped commercial segment!', 'info');
+      }
+    });
+
+    document.getElementById('markAdHereBtn').addEventListener('click', () => {
+      const ep = getCurrentEpisode();
+      if (!ep) return;
+      const start = audio.currentTime;
+      const dur = audio.duration || ep.duration || 60;
+      const end = Math.min(dur, start + 15);
+      ep.segments.push({
+        id: `manual-ad-${Date.now()}`,
+        start,
+        end,
+        type: 'ad',
+        label: 'Manual Ad Mark (15s)',
+        confidence: 1.0,
+        reason: 'Marked manually by listener'
+      });
+      renderTimelineSegments();
+      renderAdDiagnostics();
+      showToast(`Marked ${formatTime(start)} → ${formatTime(end)} as Ad`, 'ad');
+    });
+
+    document.getElementById('rescanAdsBtn').addEventListener('click', async () => {
+      const ep = getCurrentEpisode();
+      if (!ep) return;
+      await analyzeEpisodeForAds(ep, document.getElementById('adSensitivitySelect').value);
+      renderTimelineSegments();
+      renderAdDiagnostics();
+      showToast('Re-ran Acoustic & NLP Ad Scanner', 'info');
+    });
+
+    // Timeline Scrubbing
+    const timelineWrapper = document.getElementById('timelineWrapper');
+    const hoverTooltip = document.getElementById('timelineHoverTooltip');
+
+    timelineWrapper.addEventListener('mousemove', (e) => {
+      const rect = timelineWrapper.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const dur = audio.duration || getCurrentEpisode()?.duration || 0;
+      hoverTooltip.classList.remove('hidden');
+      hoverTooltip.style.left = `${Math.min(rect.width - 42, Math.max(4, e.clientX - rect.left - 18))}px`;
+      hoverTooltip.textContent = formatTime(ratio * dur);
+    });
+
+    timelineWrapper.addEventListener('mouseleave', () => hoverTooltip.classList.add('hidden'));
+
+    timelineWrapper.addEventListener('click', (e) => {
+      const rect = timelineWrapper.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const dur = audio.duration || getCurrentEpisode()?.duration || 0;
+      seekTo(ratio * dur);
+    });
+
+    // Bookmarks
+    function addBookmark(customNote = null) {
+      const ep = getCurrentEpisode();
+      if (!ep) return;
+      if (!state.bookmarks[ep.id]) state.bookmarks[ep.id] = [];
+      const note = customNote || document.getElementById('bookmarkNoteInput').value.trim() || 'Highlighted Moment';
+      state.bookmarks[ep.id].push({ time: audio.currentTime, note });
+      localStorage.setItem('castflow_bookmarks', JSON.stringify(state.bookmarks));
+      document.getElementById('bookmarkNoteInput').value = '';
+      renderBookmarks();
+      renderTimelineSegments();
+      showToast(`🔖 Bookmarked at ${formatTime(audio.currentTime)}`, 'info');
+    }
+
+    document.getElementById('quickBookmarkBtn').addEventListener('click', () => addBookmark());
+    document.getElementById('saveBookmarkNoteBtn').addEventListener('click', () => addBookmark());
+    document.getElementById('carBookmarkBtn').addEventListener('click', () => addBookmark('Saved in Driving Mode'));
+
+    // Sleep Timer
+    const sleepSelect = document.getElementById('sleepTimerSelect');
+    const sleepBadge = document.getElementById('sleepCountdownBadge');
+    const extendSleepBtn = document.getElementById('extendSleepBtn');
+
+    sleepSelect.addEventListener('change', (e) => {
+      const val = e.target.value;
+      clearInterval(state.sleepTimer.intervalId);
+      state.sleepTimer.mode = val;
+
+      if (val === '0') {
+        sleepBadge.classList.add('hidden');
+        extendSleepBtn.classList.add('hidden');
+        return;
+      }
+      if (val === 'eoe') {
+        sleepBadge.classList.remove('hidden');
+        sleepBadge.textContent = 'EOE';
+        extendSleepBtn.classList.add('hidden');
+        return;
+      }
+
+      state.sleepTimer.endTime = Date.now() + parseInt(val, 10) * 60000;
+      sleepBadge.classList.remove('hidden');
+      extendSleepBtn.classList.remove('hidden');
+
+      state.sleepTimer.intervalId = setInterval(() => {
+        const rem = state.sleepTimer.endTime - Date.now();
+        if (rem <= 0) {
+          clearInterval(state.sleepTimer.intervalId);
+          togglePlayPause(false);
+          sleepSelect.value = '0';
+          sleepBadge.classList.add('hidden');
+          extendSleepBtn.classList.add('hidden');
+          showToast('🌙 Sleep timer paused playback', 'info');
+        } else {
+          sleepBadge.textContent = formatTime(rem / 1000);
+        }
+      }, 1000);
+    });
+
+    extendSleepBtn.addEventListener('click', () => {
+      if (state.sleepTimer.endTime) {
+        state.sleepTimer.endTime += 15 * 60000;
+        showToast('Extended sleep timer by +15 minutes', 'info');
+      }
+    });
+
+    // Episode Ended -> Queue Auto-Advance
+    audio.addEventListener('ended', () => {
+      state.isPlaying = false;
+      updatePlayIcons(false);
+      if (state.sleepTimer.mode === 'eoe') {
+        sleepSelect.value = '0';
+        sleepBadge.classList.add('hidden');
+        showToast('🌙 Paused at End of Episode', 'info');
+        return;
+      }
+      const curIdx = state.queue.indexOf(state.currentEpisodeId);
+      if (curIdx !== -1 && curIdx + 1 < state.queue.length) {
+        loadEpisode(state.queue[curIdx + 1], true);
+        showToast('Auto-advancing to next episode in queue', 'info');
+      }
+    });
+
+    // Drawer Tabs & Sidebar Tabs
+    document.querySelectorAll('.drawer-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.drawer-tab').forEach(b => {
+          b.classList.remove('border-indigo-500', 'text-white');
+          b.classList.add('border-transparent', 'text-slate-400');
+        });
+        btn.classList.add('border-indigo-500', 'text-white');
+        btn.classList.remove('border-transparent', 'text-slate-400');
+
+        const target = btn.dataset.drawerTab;
+        document.querySelectorAll('.drawer-panel').forEach(p => p.classList.add('hidden'));
+        document.getElementById(`panel-${target}`).classList.remove('hidden');
+      });
+    });
+
+    document.querySelectorAll('.side-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.side-tab').forEach(b => {
+          b.classList.remove('border-indigo-500', 'text-white');
+          b.classList.add('border-transparent', 'text-slate-400');
+        });
+        btn.classList.add('border-indigo-500', 'text-white');
+        btn.classList.remove('border-transparent', 'text-slate-400');
+        activeSideTab = btn.dataset.sideTab;
+        renderSidebar();
+      });
+    });
+
+    document.getElementById('transcriptSearchInput').addEventListener('input', renderTranscript);
+
+    // Car Mode & Per-Show Rules Modals
+    document.getElementById('openCarModeBtn').addEventListener('click', () => document.getElementById('carModeModal').classList.remove('hidden'));
+    document.getElementById('closeCarModeBtn').addEventListener('click', () => document.getElementById('carModeModal').classList.add('hidden'));
+
+    document.getElementById('openShowRulesBtn').addEventListener('click', () => {
+      const ep = getCurrentEpisode();
+      if (!ep) return;
+      document.getElementById('rulesShowName').textContent = ep.showName;
+      const existing = state.showRules[ep.showName] || { defaultSpeed: state.baseSpeed, skipIntroSec: 8, autoAdSkip: true };
+      document.getElementById('ruleDefaultSpeed').value = existing.defaultSpeed;
+      document.getElementById('ruleSkipIntroSec').value = existing.skipIntroSec;
+      document.getElementById('ruleAutoAdSkip').checked = existing.autoAdSkip;
+      document.getElementById('showRulesModal').classList.remove('hidden');
+    });
+
+    document.getElementById('closeShowRulesBtn').addEventListener('click', () => document.getElementById('showRulesModal').classList.add('hidden'));
+    document.getElementById('saveShowRulesBtn').addEventListener('click', () => {
+      const ep = getCurrentEpisode();
+      if (!ep) return;
+      state.showRules[ep.showName] = {
+        defaultSpeed: parseFloat(document.getElementById('ruleDefaultSpeed').value) || 1.0,
+        skipIntroSec: parseInt(document.getElementById('ruleSkipIntroSec').value, 10) || 0,
+        autoAdSkip: document.getElementById('ruleAutoAdSkip').checked
+      };
+      localStorage.setItem('castflow_show_rules', JSON.stringify(state.showRules));
+      document.getElementById('showRulesModal').classList.add('hidden');
+      loadEpisode(ep.id, state.isPlaying);
+      showToast(`Saved automation rules for "${ep.showName}"`, 'info');
+    });
+
+    // ==========================================
+    // 10. BOOTSTRAP APPLICATION
+    // ==========================================
+    window.addEventListener('resize', resizeVisualizerCanvas);
+    window.onload = function () {
+      resizeVisualizerCanvas();
+      state.episodes = createBuiltInDemoEpisodes();
+      state.queue = state.episodes.map(e => e.id);
+      loadEpisode(state.episodes[0].id, false);
+      requestAnimationFrame(dspLoop);
+    };
+  </script>
+</body>
+</html>
