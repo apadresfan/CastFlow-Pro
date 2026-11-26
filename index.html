@@ -400,11 +400,26 @@
 
     const audioEl = document.getElementById('audioElement');
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
-    const KEYVAL_BASE = 'https://keyvalue.immanuel.co/api/KeyVal';
+    const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
 
     function generateSyncKey() {
       const randPart = () => Math.random().toString(36).slice(2, 7);
       return `cf-${randPart()}-${randPart()}`;
+    }
+
+    function parseSyncKeyParts(rawKey) {
+      const cleaned = String(rawKey || '').trim();
+      const match = cleaned.match(/^(cf-[a-zA-Z0-9_-]+?)--([a-zA-Z0-9-]+)$/);
+      if (match) {
+        return { baseKey: match[1], blobId: match[2] };
+      }
+      return { baseKey: cleaned, blobId: '' };
+    }
+
+    function formatCombinedSyncKey(baseKey, blobId) {
+      const cleanBase = String(baseKey || '').trim() || generateSyncKey();
+      const cleanBlob = String(blobId || '').trim();
+      return cleanBlob ? `${cleanBase}--${cleanBlob}` : cleanBase;
     }
 
     const defaultPrefs = {
@@ -481,41 +496,71 @@
       if (statusPill) statusPill.textContent = text;
     }
 
-    function normalizeSyncKeyName(key) {
-      return `CastFlowV1_${String(key || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    function setActiveSyncKeyUI(nextKey) {
+      activeSyncKey = nextKey;
+      localStorage.setItem('castflow_active_sync_key', activeSyncKey);
+      const keyInput = document.getElementById('syncKeyInput');
+      if (keyInput && document.activeElement !== keyInput) {
+        keyInput.value = activeSyncKey;
+      }
     }
 
     async function pushFallbackSyncState(key, payload) {
       const cleanKey = String(key || '').trim();
       if (!cleanKey) return false;
-      const kvKey = normalizeSyncKeyName(cleanKey);
+      const { baseKey, blobId } = parseSyncKeyParts(cleanKey);
       const bodyObj = {
         ...payload,
         syncKey: cleanKey,
+        baseSyncKey: baseKey,
         updatedAt: Number(payload.updatedAt) || Date.now()
       };
-      const encodedVal = encodeURIComponent(JSON.stringify(bodyObj));
 
       try {
-        const initRes = await fetch(`${KEYVAL_BASE}/Init/${encodeURIComponent(kvKey)}/init`, {
-          method: 'POST',
-          cache: 'no-store'
-        });
-        if (initRes.ok) {
-          const updateRes = await fetch(`${KEYVAL_BASE}/UpdateValue/${encodeURIComponent(kvKey)}/${encodedVal}`, {
-            method: 'POST',
-            cache: 'no-store'
+        if (blobId) {
+          const putRes = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            cache: 'no-store',
+            body: JSON.stringify(bodyObj)
           });
-          if (updateRes.ok) return true;
+          if (putRes.ok) {
+            return true;
+          }
         }
-      } catch (_) {}
 
-      try {
-        const legacyRes = await fetch(`${KEYVAL_BASE}/${encodeURIComponent(kvKey)}/${encodedVal}`, {
+        const createRes = await fetch(JSONBLOB_API, {
           method: 'POST',
-          cache: 'no-store'
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          cache: 'no-store',
+          body: JSON.stringify(bodyObj)
         });
-        return legacyRes.ok;
+        if (!createRes.ok) return false;
+
+        const locationHeader = createRes.headers.get('X-JsonBlob-Id') || createRes.headers.get('Location') || '';
+        let createdId = '';
+        const idMatch = locationHeader.match(/([a-zA-Z0-9-]{8,})\/?$/);
+        if (idMatch) {
+          createdId = idMatch[1];
+        } else {
+          try {
+            const createdJson = await createRes.json();
+            createdId = String(createdJson?.id || '').trim();
+          } catch (_) {}
+        }
+
+        if (createdId) {
+          const combinedKey = formatCombinedSyncKey(baseKey, createdId);
+          setActiveSyncKeyUI(combinedKey);
+          localStorage.setItem(STORAGE_KEY_PREFIX + activeSyncKey, JSON.stringify(bodyObj));
+        }
+        return true;
       } catch (_) {
         return false;
       }
@@ -524,22 +569,17 @@
     async function pullFallbackSyncState(key) {
       const cleanKey = String(key || '').trim();
       if (!cleanKey) return null;
-      const kvKey = normalizeSyncKeyName(cleanKey);
+      const { blobId } = parseSyncKeyParts(cleanKey);
+      if (!blobId) return null;
 
       try {
-        const res = await fetch(`${KEYVAL_BASE}/GetValue/${encodeURIComponent(kvKey)}?t=${Date.now()}`, {
+        const res = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}?t=${Date.now()}`, {
           method: 'GET',
+          headers: { 'Accept': 'application/json' },
           cache: 'no-store'
         });
         if (!res.ok) return null;
-        let rawText = await res.text();
-        if (!rawText || rawText === 'null' || rawText === 'init') return null;
-
-        let parsed = JSON.parse(rawText);
-        if (typeof parsed === 'string') {
-          if (!parsed || parsed === 'init') return null;
-          parsed = JSON.parse(parsed);
-        }
+        const parsed = await res.json();
         if (parsed && typeof parsed === 'object') {
           return parsed;
         }
@@ -672,7 +712,8 @@
           !(prefs.subscribedShows.length === 2 &&
             prefs.subscribedShows[0]?.name === 'Tech Frontier Weekly' &&
             prefs.subscribedShows[1]?.name === 'Midnight Mystery Files');
-        if (localHasCustomShows || (prefs.playedEpisodeIds && prefs.playedEpisodeIds.length > 0)) {
+        const { blobId } = parseSyncKeyParts(key);
+        if (localHasCustomShows || (prefs.playedEpisodeIds && prefs.playedEpisodeIds.length > 0) || !blobId) {
           const payload = serializeSyncPayload();
           const seeded = await pushFallbackSyncState(key, payload);
           updateSyncStatusUI(seeded ? 'Cloud Synced' : 'Local Only');
