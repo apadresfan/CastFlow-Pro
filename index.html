@@ -354,6 +354,7 @@
   <script>
     const audioEl = document.getElementById('audioElement');
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
+    const CLOUD_SYNC_ENDPOINT = 'https://kvdb.io/';
 
     function generateSyncKey() {
       const partA = Math.random().toString(36).slice(2, 7);
@@ -389,11 +390,114 @@
       ],
       playedEpisodeIds: [],
       savedEpisodeIds: [],
-      bookmarks: {}
+      bookmarks: {},
+      updatedAt: 0
     };
 
     const prefs = Object.assign({}, defaultPrefs);
     let activeSyncKey = getInitialSyncKey();
+
+    function applyParsedPrefs(parsed) {
+      if (!parsed || typeof parsed !== 'object') return;
+      Object.assign(prefs, defaultPrefs, parsed, {
+        librarySortOrder: parsed.librarySortOrder === 'oldest' ? 'oldest' : 'newest',
+        hideListened: Boolean(parsed.hideListened),
+        subscribedShows: Array.isArray(parsed.subscribedShows) ? parsed.subscribedShows : [...defaultPrefs.subscribedShows],
+        playedEpisodeIds: Array.isArray(parsed.playedEpisodeIds) ? Array.from(new Set(parsed.playedEpisodeIds)) : [],
+        savedEpisodeIds: Array.isArray(parsed.savedEpisodeIds) ? Array.from(new Set(parsed.savedEpisodeIds)) : [],
+        bookmarks: parsed.bookmarks && typeof parsed.bookmarks === 'object' ? parsed.bookmarks : {},
+        updatedAt: Number(parsed.updatedAt) || 0
+      });
+    }
+
+    function serializeSyncPayload() {
+      return {
+        speed: prefs.speed,
+        autoSkipAds: prefs.autoSkipAds,
+        silenceTrim: prefs.silenceTrim,
+        voiceBoost: prefs.voiceBoost,
+        adSecondsSaved: prefs.adSecondsSaved,
+        activeTab: prefs.activeTab,
+        libraryFilter: prefs.libraryFilter,
+        librarySortOrder: prefs.librarySortOrder,
+        hideListened: prefs.hideListened,
+        subscribedShows: prefs.subscribedShows,
+        playedEpisodeIds: Array.from(new Set(prefs.playedEpisodeIds || [])),
+        savedEpisodeIds: Array.from(new Set(prefs.savedEpisodeIds || [])),
+        bookmarks: prefs.bookmarks,
+        updatedAt: prefs.updatedAt || Date.now()
+      };
+    }
+
+    function updateSyncStatusUI(text) {
+      const statusPill = document.getElementById('syncStatusPill');
+      if (statusPill) statusPill.textContent = text;
+    }
+
+    async function pushCloudState(key, payload) {
+      if (!key) return;
+      try {
+        updateSyncStatusUI('Syncing...');
+        const resp = await fetch(`${CLOUD_SYNC_ENDPOINT}${encodeURIComponent(key)}/profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        updateSyncStatusUI(resp.ok ? 'Synced' : 'Local Only');
+      } catch (_) {
+        updateSyncStatusUI('Local Only');
+      }
+    }
+
+    async function pullCloudState(key) {
+      if (!key) return false;
+      try {
+        updateSyncStatusUI('Pulling...');
+        const resp = await fetch(`${CLOUD_SYNC_ENDPOINT}${encodeURIComponent(key)}/profile`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (!resp.ok) {
+          updateSyncStatusUI('Synced');
+          return false;
+        }
+        const remote = await resp.json();
+        if (!remote || typeof remote !== 'object') {
+          updateSyncStatusUI('Synced');
+          return false;
+        }
+
+        const localUpdated = Number(prefs.updatedAt) || 0;
+        const remoteUpdated = Number(remote.updatedAt) || 0;
+        if (remoteUpdated >= localUpdated) {
+          applyParsedPrefs(remote);
+          localStorage.setItem(STORAGE_KEY_PREFIX + key, JSON.stringify(serializeSyncPayload()));
+          syncControlsFromPrefs();
+          renderLibrary();
+          renderQueue();
+        }
+        updateSyncStatusUI('Synced');
+        return true;
+      } catch (_) {
+        updateSyncStatusUI('Synced');
+        return false;
+      }
+    }
+
+    function syncControlsFromPrefs() {
+      const range = document.getElementById('speedRange');
+      const label = document.getElementById('speedValueLabel');
+      if (range) range.value = prefs.speed;
+      if (label) label.textContent = `${Number(prefs.speed || 1).toFixed(2)}x`;
+
+      const autoSkipEl = document.getElementById('toggleAutoSkipAds');
+      const silenceEl = document.getElementById('toggleSilenceTrim');
+      const voiceEl = document.getElementById('toggleVoiceBoost');
+      if (autoSkipEl) autoSkipEl.checked = Boolean(prefs.autoSkipAds);
+      if (silenceEl) silenceEl.checked = Boolean(prefs.silenceTrim);
+      if (voiceEl) voiceEl.checked = Boolean(prefs.voiceBoost);
+      updateAdSavedPill();
+    }
 
     function loadPrefsForKey(key) {
       try {
@@ -401,41 +505,23 @@
         localStorage.setItem('castflow_active_sync_key', activeSyncKey);
         const raw = localStorage.getItem(STORAGE_KEY_PREFIX + activeSyncKey);
         const parsed = raw ? JSON.parse(raw) : {};
-        Object.assign(prefs, defaultPrefs, parsed, {
-          subscribedShows: Array.isArray(parsed.subscribedShows) ? parsed.subscribedShows : [...defaultPrefs.subscribedShows],
-          playedEpisodeIds: Array.isArray(parsed.playedEpisodeIds) ? parsed.playedEpisodeIds : [],
-          savedEpisodeIds: Array.isArray(parsed.savedEpisodeIds) ? parsed.savedEpisodeIds : [],
-          bookmarks: parsed.bookmarks && typeof parsed.bookmarks === 'object' ? parsed.bookmarks : {}
-        });
+        applyParsedPrefs(parsed);
       } catch (_) {
-        Object.assign(prefs, defaultPrefs);
+        applyParsedPrefs(defaultPrefs);
       }
       const keyInput = document.getElementById('syncKeyInput');
       if (keyInput) keyInput.value = activeSyncKey;
-      const statusPill = document.getElementById('syncStatusPill');
-      if (statusPill) statusPill.textContent = 'Synced';
+      updateSyncStatusUI('Synced');
     }
 
     function savePrefs() {
       try {
+        prefs.updatedAt = Date.now();
+        const payload = serializeSyncPayload();
         localStorage.setItem('castflow_active_sync_key', activeSyncKey);
-        localStorage.setItem(STORAGE_KEY_PREFIX + activeSyncKey, JSON.stringify({
-          speed: prefs.speed,
-          autoSkipAds: prefs.autoSkipAds,
-          silenceTrim: prefs.silenceTrim,
-          voiceBoost: prefs.voiceBoost,
-          adSecondsSaved: prefs.adSecondsSaved,
-          activeTab: prefs.activeTab,
-          libraryFilter: prefs.libraryFilter,
-          librarySortOrder: prefs.librarySortOrder,
-          hideListened: prefs.hideListened,
-          subscribedShows: prefs.subscribedShows,
-          playedEpisodeIds: prefs.playedEpisodeIds,
-          savedEpisodeIds: prefs.savedEpisodeIds,
-          bookmarks: prefs.bookmarks
-        }));
-        const statusPill = document.getElementById('syncStatusPill');
-        if (statusPill) statusPill.textContent = 'Synced';
+        localStorage.setItem(STORAGE_KEY_PREFIX + activeSyncKey, JSON.stringify(payload));
+        updateSyncStatusUI('Synced');
+        pushCloudState(activeSyncKey, payload);
       } catch (_) {}
     }
 
@@ -1248,28 +1334,18 @@
       runtime.queueIds = runtime.episodes.map(e => e.id);
       runtime.currentEpisodeId = runtime.episodes[0]?.id || null;
 
-      const range = document.getElementById('speedRange');
-      const label = document.getElementById('speedValueLabel');
-      if (range) range.value = prefs.speed;
-      if (label) label.textContent = `${Number(prefs.speed || 1).toFixed(2)}x`;
-
-      const autoSkipEl = document.getElementById('toggleAutoSkipAds');
-      const silenceEl = document.getElementById('toggleSilenceTrim');
-      const voiceEl = document.getElementById('toggleVoiceBoost');
-      if (autoSkipEl) autoSkipEl.checked = Boolean(prefs.autoSkipAds);
-      if (silenceEl) silenceEl.checked = Boolean(prefs.silenceTrim);
-      if (voiceEl) voiceEl.checked = Boolean(prefs.voiceBoost);
-
-      updateAdSavedPill();
+      syncControlsFromPrefs();
       selectEpisode(runtime.currentEpisodeId, false);
       renderLibrary();
       renderQueue();
       switchTab(prefs.activeTab || 'player');
 
-      prefs.subscribedShows.forEach(show => {
-        if (show && show.name) {
-          loadEpisodesForShow(show);
-        }
+      pullCloudState(activeSyncKey).then(() => {
+        prefs.subscribedShows.forEach(show => {
+          if (show && show.name) {
+            loadEpisodesForShow(show);
+          }
+        });
       });
 
       requestAnimationFrame(tickPlayback);
@@ -1394,14 +1470,16 @@
       }
     });
 
-    document.getElementById('applySyncKeyBtn').addEventListener('click', () => {
+    document.getElementById('applySyncKeyBtn').addEventListener('click', async () => {
       const input = document.getElementById('syncKeyInput');
       if (!input) return;
       const nextKey = input.value.trim();
       if (!nextKey) return;
       loadPrefsForKey(nextKey);
+      syncControlsFromPrefs();
       renderLibrary();
       renderQueue();
+      await pullCloudState(nextKey);
       showToast('Switched sync profile');
     });
 
