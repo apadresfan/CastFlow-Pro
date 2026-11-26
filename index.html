@@ -400,11 +400,7 @@
 
     const audioEl = document.getElementById('audioElement');
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
-    const PUBLIC_SYNC_ENDPOINTS = [
-      'https://kvdb.io/CastFlowSyncV1',
-      'https://keyvalue.immanuel.co/api/KeyVal'
-    ];
-    const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
+    const KEYVAL_BASE = 'https://keyvalue.immanuel.co/api/KeyVal';
 
     function generateSyncKey() {
       const randPart = () => Math.random().toString(36).slice(2, 7);
@@ -485,112 +481,67 @@
       if (statusPill) statusPill.textContent = text;
     }
 
-    function getBlobIdMap() {
-      try {
-        const raw = localStorage.getItem('castflow_jsonblob_map');
-        return raw ? JSON.parse(raw) : {};
-      } catch (_) {
-        return {};
-      }
-    }
-
-    function saveBlobIdMap(map) {
-      try {
-        localStorage.setItem('castflow_jsonblob_map', JSON.stringify(map));
-      } catch (_) {}
+    function normalizeSyncKeyName(key) {
+      return `CastFlowV1_${String(key || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     }
 
     async function pushFallbackSyncState(key, payload) {
-      const safeKey = encodeURIComponent(String(key || '').trim());
+      const cleanKey = String(key || '').trim();
+      if (!cleanKey) return false;
+      const kvKey = normalizeSyncKeyName(cleanKey);
       const bodyObj = {
         ...payload,
-        syncKey: key,
+        syncKey: cleanKey,
         updatedAt: Number(payload.updatedAt) || Date.now()
       };
-      const bodyStr = JSON.stringify(bodyObj);
-
-      for (const base of PUBLIC_SYNC_ENDPOINTS) {
-        try {
-          const url = base.includes('keyvalue.immanuel.co')
-            ? `${base}/CastFlowSyncV1_${safeKey}/${encodeURIComponent(bodyStr)}`
-            : `${base}/${safeKey}`;
-          const method = base.includes('keyvalue.immanuel.co') ? 'POST' : 'POST';
-          const res = await fetch(url, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: base.includes('keyvalue.immanuel.co') ? undefined : bodyStr
-          });
-          if (res.ok) return true;
-        } catch (_) {}
-      }
+      const encodedVal = encodeURIComponent(JSON.stringify(bodyObj));
 
       try {
-        const blobMap = getBlobIdMap();
-        let blobId = blobMap[key];
-        if (!blobId) {
-          const createRes = await fetch(JSONBLOB_API, {
+        const initRes = await fetch(`${KEYVAL_BASE}/Init/${encodeURIComponent(kvKey)}/init`, {
+          method: 'POST',
+          cache: 'no-store'
+        });
+        if (initRes.ok) {
+          const updateRes = await fetch(`${KEYVAL_BASE}/UpdateValue/${encodeURIComponent(kvKey)}/${encodedVal}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: bodyStr
+            cache: 'no-store'
           });
-          if (createRes.ok) {
-            const loc = createRes.headers.get('Location') || '';
-            const created = await createRes.json().catch(() => null);
-            blobId = created?.id || loc.split('/').pop();
-            if (blobId) {
-              blobMap[key] = blobId;
-              saveBlobIdMap(blobMap);
-              return true;
-            }
-          }
-        } else {
-          const putRes = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: bodyStr
-          });
-          if (putRes.ok) return true;
+          if (updateRes.ok) return true;
         }
       } catch (_) {}
 
-      return false;
+      try {
+        const legacyRes = await fetch(`${KEYVAL_BASE}/${encodeURIComponent(kvKey)}/${encodedVal}`, {
+          method: 'POST',
+          cache: 'no-store'
+        });
+        return legacyRes.ok;
+      } catch (_) {
+        return false;
+      }
     }
 
     async function pullFallbackSyncState(key) {
-      const safeKey = encodeURIComponent(String(key || '').trim());
-
-      for (const base of PUBLIC_SYNC_ENDPOINTS) {
-        try {
-          const url = base.includes('keyvalue.immanuel.co')
-            ? `${base}/get/CastFlowSyncV1_${safeKey}`
-            : `${base}/${safeKey}`;
-          const res = await fetch(url, { method: 'GET', cache: 'no-store' });
-          if (!res.ok) continue;
-          const rawText = await res.text();
-          if (!rawText) continue;
-          let parsed = JSON.parse(rawText);
-          if (typeof parsed === 'string') {
-            parsed = JSON.parse(parsed);
-          }
-          if (parsed && typeof parsed === 'object') {
-            return parsed;
-          }
-        } catch (_) {}
-      }
+      const cleanKey = String(key || '').trim();
+      if (!cleanKey) return null;
+      const kvKey = normalizeSyncKeyName(cleanKey);
 
       try {
-        const blobMap = getBlobIdMap();
-        const blobId = blobMap[key];
-        if (blobId) {
-          const res = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' },
-            cache: 'no-store'
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data && typeof data === 'object') return data;
-          }
+        const res = await fetch(`${KEYVAL_BASE}/GetValue/${encodeURIComponent(kvKey)}?t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (!res.ok) return null;
+        let rawText = await res.text();
+        if (!rawText || rawText === 'null' || rawText === 'init') return null;
+
+        let parsed = JSON.parse(rawText);
+        if (typeof parsed === 'string') {
+          if (!parsed || parsed === 'init') return null;
+          parsed = JSON.parse(parsed);
+        }
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
         }
       } catch (_) {}
 
@@ -639,9 +590,12 @@
           remote.subscribedShows[1]?.name === 'Midnight Mystery Files');
 
       const shouldApply =
-        remoteUpdated > localUpdated ||
+        remoteUpdated >= localUpdated ||
         (remoteHasCustomShows && !localHasCustomShows) ||
-        (remoteUpdated === localUpdated && JSON.stringify(remote.subscribedShows || []) !== JSON.stringify(prefs.subscribedShows || []));
+        JSON.stringify(remote.subscribedShows || []) !== JSON.stringify(prefs.subscribedShows || []) ||
+        JSON.stringify(remote.playedEpisodeIds || []) !== JSON.stringify(prefs.playedEpisodeIds || []) ||
+        remote.librarySortOrder !== prefs.librarySortOrder ||
+        Boolean(remote.hideListened) !== Boolean(prefs.hideListened);
 
       if (shouldApply) {
         isApplyingRemoteState = true;
@@ -698,14 +652,11 @@
           const snap = await getDoc(docRef);
           if (snap && snap.exists()) {
             applyIncomingRemotePayload(snap.data());
-          } else {
-            // Seed initial profile in cloud if this key hasn't been written yet
-            const payload = serializeSyncPayload();
-            await setDoc(docRef, { ...payload, syncKey: key }, { merge: true });
+            subscribeToCloudKey(key);
+            updateSyncStatusUI('Synced');
+            return true;
           }
           subscribeToCloudKey(key);
-          updateSyncStatusUI('Synced');
-          return true;
         }
 
         updateSyncStatusUI('Pulling...');
@@ -714,12 +665,22 @@
           applyIncomingRemotePayload(remote);
           updateSyncStatusUI('Cloud Synced');
           return true;
-        } else {
+        }
+
+        const localHasCustomShows =
+          Array.isArray(prefs.subscribedShows) &&
+          !(prefs.subscribedShows.length === 2 &&
+            prefs.subscribedShows[0]?.name === 'Tech Frontier Weekly' &&
+            prefs.subscribedShows[1]?.name === 'Midnight Mystery Files');
+        if (localHasCustomShows || (prefs.playedEpisodeIds && prefs.playedEpisodeIds.length > 0)) {
           const payload = serializeSyncPayload();
           const seeded = await pushFallbackSyncState(key, payload);
           updateSyncStatusUI(seeded ? 'Cloud Synced' : 'Local Only');
           return seeded;
         }
+
+        updateSyncStatusUI('Ready');
+        return false;
       } catch (_) {
         updateSyncStatusUI('Local Only');
         return false;
@@ -1584,17 +1545,17 @@
 
       await initFirebaseSync();
       await pullCloudState(activeSyncKey);
-      prefs.subscribedShows.forEach(show => {
+      for (const show of prefs.subscribedShows || []) {
         if (show && show.name) {
-          loadEpisodesForShow(show);
+          await loadEpisodesForShow(show);
         }
-      });
+      }
 
       setInterval(() => {
         if (activeSyncKey && !document.hidden) {
           pullCloudState(activeSyncKey);
         }
-      }, 15000);
+      }, 10000);
 
       requestAnimationFrame(tickPlayback);
     }
