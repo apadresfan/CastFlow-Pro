@@ -1025,10 +1025,20 @@
     function sortEpisodesList(list) {
       const order = prefs.librarySortOrder === 'oldest' ? 'oldest' : 'newest';
       return [...list].sort((a, b) => {
-        const ta = Number.isFinite(a.publishedAt) ? a.publishedAt : 0;
-        const tb = Number.isFinite(b.publishedAt) ? b.publishedAt : 0;
-        return order === 'oldest' ? ta - tb : tb - ta;
+        const ta = Number.isFinite(a.publishedAt) && a.publishedAt > 0 ? a.publishedAt : 0;
+        const tb = Number.isFinite(b.publishedAt) && b.publishedAt > 0 ? b.publishedAt : 0;
+        if (ta !== tb) return order === 'oldest' ? ta - tb : tb - ta;
+        const epNumA = parseInt((a.title.match(/(?:ep\.?|episode|#)\s*(\d+)/i) || [])[1] || '0', 10);
+        const epNumB = parseInt((b.title.match(/(?:ep\.?|episode|#)\s*(\d+)/i) || [])[1] || '0', 10);
+        return order === 'oldest' ? epNumA - epNumB : epNumB - epNumA;
       });
+    }
+
+    function normalizeEpisodeTitle(title) {
+      return String(title || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
     }
 
     async function fetchTextWithFallback(targetUrl) {
@@ -1112,7 +1122,7 @@
       let json = null;
 
       if (collectionId) {
-        const lookupUrl = `https://itunes.apple.com/lookup?id=${encodeURIComponent(collectionId)}&entity=podcastEpisode&limit=25`;
+        const lookupUrl = `https://itunes.apple.com/lookup?id=${encodeURIComponent(collectionId)}&entity=podcastEpisode&limit=200`;
         json = await fetchItunesJsonp(lookupUrl);
         if (!json) {
           const raw = await fetchTextWithFallback(lookupUrl);
@@ -1127,13 +1137,13 @@
         const showJson = await fetchItunesJsonp(findShowUrl);
         const matchedShow = (showJson?.results || []).find(r => r.collectionId);
         if (matchedShow?.collectionId) {
-          const epLookupUrl = `https://itunes.apple.com/lookup?id=${encodeURIComponent(matchedShow.collectionId)}&entity=podcastEpisode&limit=25`;
+          const epLookupUrl = `https://itunes.apple.com/lookup?id=${encodeURIComponent(matchedShow.collectionId)}&entity=podcastEpisode&limit=200`;
           json = await fetchItunesJsonp(epLookupUrl);
         }
       }
 
       if (!json || !(json.results || []).some(r => r.wrapperType === 'podcastEpisode')) {
-        const searchEpUrl = `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=25&term=${encodeURIComponent(showName)}`;
+        const searchEpUrl = `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=200&term=${encodeURIComponent(showName)}`;
         json = await fetchItunesJsonp(searchEpUrl);
       }
 
@@ -1164,19 +1174,21 @@
           const rawXml = await fetchTextWithFallback(show.feedUrl);
           if (rawXml) {
             const xml = new DOMParser().parseFromString(rawXml, 'text/xml');
-            const resolvedShowName = xml.querySelector('channel > title')?.textContent?.trim() || show.name;
-            const items = Array.from(xml.querySelectorAll('item')).slice(0, 20);
+            const items = Array.from(xml.querySelectorAll('item'));
+            const totalItems = items.length;
 
             items.forEach((item, idx) => {
               const enclosureUrl = item.querySelector('enclosure')?.getAttribute('url');
               if (!enclosureUrl) return;
-              const epTitle = item.querySelector('title')?.textContent?.trim() || `Episode ${idx + 1}`;
+              const epTitle = item.querySelector('title')?.textContent?.trim() || `Episode ${totalItems - idx}`;
               const pubDateStr = item.querySelector('pubDate')?.textContent?.trim();
-              const publishedAt = pubDateStr ? (Date.parse(pubDateStr) || (Date.now() - idx * 60000)) : (Date.now() - idx * 60000);
+              const parsedDate = pubDateStr ? Date.parse(pubDateStr) : NaN;
+              const publishedAt = Number.isFinite(parsedDate) ? parsedDate : (Date.now() - idx * 86400000);
               const durNode = item.getElementsByTagName('itunes:duration')[0] || item.querySelector('duration');
               const durSec = parseItunesDuration(durNode?.textContent);
+              const normTitle = normalizeEpisodeTitle(epTitle);
               const alreadyLoaded = runtime.episodes.some(
-                existing => existing.audioUrl === enclosureUrl || (existing.show.toLowerCase() === show.name.toLowerCase() && existing.title === epTitle)
+                existing => existing.audioUrl === enclosureUrl || (existing.show.toLowerCase() === show.name.toLowerCase() && normalizeEpisodeTitle(existing.title) === normTitle)
               );
               if (alreadyLoaded) return;
 
@@ -1197,21 +1209,20 @@
           }
         }
 
-        // Fallback to iTunes Episode Lookup if RSS XML was blocked or returned 0 items
-        if (loadedCount === 0) {
-          const itunesEps = await fetchEpisodesViaItunesLookup(show.name, show.collectionId || '');
-          itunesEps.forEach(ep => {
-            const alreadyLoaded = runtime.episodes.some(
-              existing => existing.audioUrl === ep.audioUrl || (existing.show.toLowerCase() === show.name.toLowerCase() && existing.title === ep.title)
-            );
-            if (!alreadyLoaded) {
-              runtime.episodes.push({ ...ep, show: show.name });
-              loadedCount++;
-            }
-          });
-        }
+        // Always merge any additional episodes from iTunes Episode Lookup (in case RSS feed was partial/truncated)
+        const itunesEps = await fetchEpisodesViaItunesLookup(show.name, show.collectionId || '');
+        itunesEps.forEach(ep => {
+          const normTitle = normalizeEpisodeTitle(ep.title);
+          const alreadyLoaded = runtime.episodes.some(
+            existing => existing.audioUrl === ep.audioUrl || (existing.show.toLowerCase() === show.name.toLowerCase() && normalizeEpisodeTitle(existing.title) === normTitle)
+          );
+          if (!alreadyLoaded) {
+            runtime.episodes.push({ ...ep, show: show.name });
+            loadedCount++;
+          }
+        });
 
-        if (loadedCount === 0) {
+        if (loadedCount === 0 && !runtime.episodes.some(e => e.show.toLowerCase() === show.name.toLowerCase())) {
           showToast(`Could not load episodes for ${show.name}`);
         }
       } catch (_) {
@@ -1673,7 +1684,7 @@
         if (!rawXml) throw new Error('Empty feed response');
         const xml = new DOMParser().parseFromString(rawXml, 'text/xml');
         const show = xml.querySelector('channel > title')?.textContent?.trim() || fallbackShowTitle || 'RSS Podcast';
-        const items = Array.from(xml.querySelectorAll('item')).slice(0, 20);
+        const items = Array.from(xml.querySelectorAll('item'));
 
         if (fallbackShowTitle && fallbackShowTitle !== show) {
           prefs.subscribedShows = prefs.subscribedShows.filter(
