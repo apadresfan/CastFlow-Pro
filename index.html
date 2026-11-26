@@ -967,10 +967,17 @@
     function ensureShowSubscription(name, icon = '🎙️', feedUrl = '') {
       const cleanName = (name || '').trim();
       if (!cleanName) return;
-      const exists = prefs.subscribedShows.some(s => s.name.toLowerCase() === cleanName.toLowerCase());
-      if (!exists) {
+      const idx = prefs.subscribedShows.findIndex(s => s.name.toLowerCase() === cleanName.toLowerCase());
+      if (idx === -1) {
         prefs.subscribedShows.unshift({ name: cleanName, icon, feedUrl });
+      } else if (feedUrl && !prefs.subscribedShows[idx].feedUrl) {
+        prefs.subscribedShows[idx].feedUrl = feedUrl;
       }
+      prefs.libraryFilter = 'all';
+      prefs.librarySearch = '';
+      const searchEl = document.getElementById('librarySearchInput');
+      if (searchEl) searchEl.value = '';
+      savePrefs();
     }
 
     function toggleSavedEpisode(epId) {
@@ -1399,8 +1406,12 @@
 
       const looksLikeUrl = /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}(\/|$)/i.test(url);
       if (!looksLikeUrl) {
-        showToast(`Searching Apple Podcasts for "${url}"...`);
-        const searchUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=5&term=${encodeURIComponent(url)}`;
+        const searchTerm = url;
+        ensureShowSubscription(searchTerm, '📡', '');
+        renderLibrary();
+        showToast(`Searching Apple Podcasts for "${searchTerm}"...`);
+
+        const searchUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=5&term=${encodeURIComponent(searchTerm)}`;
         let found = null;
         try {
           const direct = await fetch(searchUrl);
@@ -1421,13 +1432,21 @@
         }
 
         if (!found || !found.feedUrl) {
-          showToast(`No podcast feed found for "${url}"`);
+          showToast(`Added "${searchTerm}" to Library (no live RSS found yet)`);
           return;
         }
 
+        const resolvedShowName = found.collectionName || found.trackName || searchTerm;
+        prefs.subscribedShows = prefs.subscribedShows.filter(
+          s => s.name.toLowerCase() !== searchTerm.toLowerCase()
+        );
+        ensureShowSubscription(resolvedShowName, '📡', found.feedUrl);
+        savePrefs();
+        renderLibrary();
+
         url = found.feedUrl;
         if (!fallbackShowTitle) {
-          fallbackShowTitle = found.collectionName || found.trackName || url;
+          fallbackShowTitle = resolvedShowName;
         }
       }
 
@@ -1454,6 +1473,11 @@
         const show = xml.querySelector('channel > title')?.textContent?.trim() || fallbackShowTitle || 'RSS Podcast';
         const items = Array.from(xml.querySelectorAll('item')).slice(0, 10);
 
+        if (fallbackShowTitle && fallbackShowTitle !== show) {
+          prefs.subscribedShows = prefs.subscribedShows.filter(
+            s => s.name.toLowerCase() !== fallbackShowTitle.toLowerCase()
+          );
+        }
         ensureShowSubscription(show, '📡', url);
 
         items.forEach((item, idx) => {
@@ -1662,6 +1686,10 @@
     window.onload = function () {
       runtime.episodes = buildDemoEpisodes();
       runtime.queueIds = runtime.episodes.map(e => e.id);
+      if (!Array.isArray(prefs.subscribedShows) || !prefs.subscribedShows.length) {
+        prefs.subscribedShows = [...defaultPrefs.subscribedShows];
+        savePrefs();
+      }
       const searchEl = document.getElementById('librarySearchInput');
       if (searchEl && prefs.librarySearch) searchEl.value = prefs.librarySearch;
       setSpeed(prefs.speed);
