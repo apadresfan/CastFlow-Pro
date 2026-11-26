@@ -400,8 +400,8 @@
 
     const audioEl = document.getElementById('audioElement');
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
+    const TEXTDB_API = 'https://textdb.dev/api';
     const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
-    const KEYVALUE_API = 'https://keyvalue.immanuel.co/api/KeyVal';
 
     function generateSyncKey() {
       const randPart = () => Math.random().toString(36).slice(2, 7);
@@ -423,24 +423,9 @@
       return cleanBlob ? `${cleanBase}--${cleanBlob}` : cleanBase;
     }
 
-    function kvTokenForKey(key) {
+    function cloudBucketForKey(key) {
       const { baseKey } = parseSyncKeyParts(key);
-      return `castflow_${String(baseKey || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    }
-
-    function parseSyncKeyParts(rawKey) {
-      const cleaned = String(rawKey || '').trim();
-      const match = cleaned.match(/^(cf-[a-zA-Z0-9_-]+?)--([a-zA-Z0-9-]+)$/);
-      if (match) {
-        return { baseKey: match[1], blobId: match[2] };
-      }
-      return { baseKey: cleaned, blobId: '' };
-    }
-
-    function formatCombinedSyncKey(baseKey, blobId) {
-      const cleanBase = String(baseKey || '').trim() || generateSyncKey();
-      const cleanBlob = String(blobId || '').trim();
-      return cleanBlob ? `${cleanBase}--${cleanBlob}` : cleanBase;
+      return `castflow_sync_${String(baseKey || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     }
 
     const defaultPrefs = {
@@ -539,25 +524,21 @@
       const serializedBody = JSON.stringify(bodyObj);
       let anySucceeded = false;
 
-      // 1. KeyValue store keyed by base sync key so any device using the same Sync Key shares it
+      // 1. Primary CORS-friendly cloud text/JSON store keyed by Sync Key
       try {
-        const kvKey = kvTokenForKey(cleanKey);
-        const initRes = await fetch(`${KEYVALUE_API}/Init/${encodeURIComponent(kvKey)}/init`, {
+        const bucket = cloudBucketForKey(cleanKey);
+        const postRes = await fetch(`${TEXTDB_API}/update/?key=${encodeURIComponent(bucket)}`, {
           method: 'POST',
-          cache: 'no-store'
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          cache: 'no-store',
+          body: serializedBody
         });
-        if (initRes.ok) {
-          const updateRes = await fetch(`${KEYVALUE_API}/UpdateValue/${encodeURIComponent(kvKey)}/${encodeURIComponent(serializedBody)}`, {
-            method: 'POST',
-            cache: 'no-store'
-          });
-          if (updateRes.ok) {
-            anySucceeded = true;
-          }
+        if (postRes.ok) {
+          anySucceeded = true;
         }
       } catch (_) {}
 
-      // 2. JSONBlob store (persists exact blobId inside the Sync Key)
+      // 2. Secondary JSONBlob store (persists exact blobId inside the Sync Key)
       try {
         if (blobId) {
           const putRes = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
@@ -615,18 +596,17 @@
       const candidates = [];
 
       try {
-        const kvKey = kvTokenForKey(cleanKey);
-        const kvRes = await fetch(`${KEYVALUE_API}/GetValue/${encodeURIComponent(kvKey)}?t=${Date.now()}`, {
+        const bucket = cloudBucketForKey(cleanKey);
+        const textRes = await fetch(`${TEXTDB_API}/?key=${encodeURIComponent(bucket)}&t=${Date.now()}`, {
           method: 'GET',
           cache: 'no-store'
         });
-        if (kvRes.ok) {
-          const rawText = await kvRes.text();
-          const cleanedText = rawText ? rawText.replace(/^"|"$/g, '').replace(/\\"/g, '"') : '';
-          if (cleanedText && cleanedText !== 'init') {
-            const parsedKv = JSON.parse(cleanedText);
-            if (parsedKv && typeof parsedKv === 'object') {
-              candidates.push(parsedKv);
+        if (textRes.ok) {
+          const rawText = await textRes.text();
+          if (rawText && rawText.trim().startsWith('{')) {
+            const parsedText = JSON.parse(rawText);
+            if (parsedText && typeof parsedText === 'object') {
+              candidates.push(parsedText);
             }
           }
         }
