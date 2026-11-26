@@ -784,10 +784,18 @@
       const saveBtn = document.getElementById('playerSaveBtn');
       const artwork = document.getElementById('playerArtwork');
 
-      if (!ep) {
+      // Always ensure the player never remains stuck on a "Loading episode..." message
+      if (!ep || !ep.title) {
         if (showTitleEl) showTitleEl.textContent = 'Library Ready';
-        if (epTitleEl) epTitleEl.textContent = 'No Episode Selected';
-        if (epMetaEl) epMetaEl.textContent = 'Choose an episode from the Library tab.';
+        if (epTitleEl) epTitleEl.textContent = 'Select an Episode';
+        if (epMetaEl) epMetaEl.textContent = 'Tap Library below to browse shows and episodes.';
+        if (playPauseBtn) playPauseBtn.textContent = 'Play';
+        if (currEl) currEl.textContent = '0:00';
+        if (durEl) durEl.textContent = '0:00';
+        if (slider) {
+          slider.max = '100';
+          slider.value = '0';
+        }
         return;
       }
 
@@ -1283,6 +1291,17 @@
 
     async function initApp() {
       loadLocalState();
+
+      // Guarantee we always have valid episode/show fallbacks on mobile even if synced state is sparse
+      if (!Array.isArray(subscribedShows) || subscribedShows.length === 0) {
+        subscribedShows = [...SAMPLE_SHOWS];
+      }
+      if (!Array.isArray(episodes) || episodes.length === 0) {
+        episodes = [...SAMPLE_EPISODES];
+      }
+      if (!currentEpisodeId || !episodes.some((e) => e.id === currentEpisodeId)) {
+        currentEpisodeId = episodes[0]?.id || 'ep-142';
+      }
 
       try {
         const urlParams = new URLSearchParams(window.location.search);
