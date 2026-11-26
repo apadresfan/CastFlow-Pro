@@ -400,117 +400,11 @@
 
     const audioEl = document.getElementById('audioElement');
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
-    const TEXTDB_API = 'https://textdb.dev/api';
+    const KEYVALUE_API = 'https://keyvalue.immanuel.co/api/KeyVal';
     const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
 
     function generateSyncKey() {
-      const randPart = () => Math.random().toString(36).slice(2, 7);
-      return `cf-${randPart()}-${randPart()}`;
-    }
-
-    function parseSyncKeyParts(rawKey) {
-      const cleaned = String(rawKey || '').trim();
-      const match = cleaned.match(/^(cf-[a-zA-Z0-9_-]+?)--([a-zA-Z0-9-]+)$/);
-      if (match) {
-        return { baseKey: match[1], blobId: match[2] };
-      }
-      return { baseKey: cleaned, blobId: '' };
-    }
-
-    function formatCombinedSyncKey(baseKey, blobId) {
-      const cleanBase = String(baseKey || '').trim() || generateSyncKey();
-      const cleanBlob = String(blobId || '').trim();
-      return cleanBlob ? `${cleanBase}--${cleanBlob}` : cleanBase;
-    }
-
-    function cloudBucketForKey(key) {
-      const { baseKey } = parseSyncKeyParts(key);
-      return `castflow_sync_${String(baseKey || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    }
-
-    const defaultPrefs = {
-      speed: 1.0,
-      autoSkipAds: true,
-      silenceTrim: false,
-      voiceBoost: false,
-      adSecondsSaved: 0,
-      activeTab: 'player',
-      libraryFilter: 'all',
-      librarySearch: '',
-      librarySortOrder: 'newest',
-      hideListened: false,
-      playedEpisodeIds: [],
-      savedEpisodeIds: [],
-      bookmarks: {},
-      subscribedShows: [
-        { name: 'Tech Frontier Weekly', icon: '🎙️', feedUrl: '', collectionId: null },
-        { name: 'Midnight Mystery Files', icon: '🕵️', feedUrl: '', collectionId: null }
-      ],
-      updatedAt: 0
-    };
-
-    let prefs = JSON.parse(JSON.stringify(defaultPrefs));
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlSyncKey = (urlParams.get('sync') || '').trim();
-    let activeSyncKey =
-      urlSyncKey ||
-      localStorage.getItem('castflow_active_sync_key') ||
-      generateSyncKey();
-
-    function serializeSyncPayload() {
-      return {
-        speed: prefs.speed,
-        autoSkipAds: prefs.autoSkipAds,
-        silenceTrim: prefs.silenceTrim,
-        voiceBoost: prefs.voiceBoost,
-        adSecondsSaved: prefs.adSecondsSaved,
-        activeTab: prefs.activeTab,
-        libraryFilter: prefs.libraryFilter,
-        librarySearch: prefs.librarySearch,
-        librarySortOrder: prefs.librarySortOrder,
-        hideListened: prefs.hideListened,
-        playedEpisodeIds: Array.isArray(prefs.playedEpisodeIds) ? prefs.playedEpisodeIds : [],
-        savedEpisodeIds: Array.isArray(prefs.savedEpisodeIds) ? prefs.savedEpisodeIds : [],
-        bookmarks: prefs.bookmarks && typeof prefs.bookmarks === 'object' ? prefs.bookmarks : {},
-        subscribedShows: Array.isArray(prefs.subscribedShows) ? prefs.subscribedShows : [],
-        updatedAt: Number(prefs.updatedAt) || Date.now()
-      };
-    }
-
-    function applyParsedPrefs(parsed) {
-      const safe = parsed && typeof parsed === 'object' ? parsed : {};
-      prefs = {
-        ...JSON.parse(JSON.stringify(defaultPrefs)),
-        ...safe,
-        speed: Number(safe.speed) || 1.0,
-        adSecondsSaved: Number(safe.adSecondsSaved) || 0,
-        librarySortOrder: safe.librarySortOrder === 'oldest' ? 'oldest' : 'newest',
-        hideListened: Boolean(safe.hideListened),
-        playedEpisodeIds: Array.isArray(safe.playedEpisodeIds) ? safe.playedEpisodeIds : [],
-        savedEpisodeIds: Array.isArray(safe.savedEpisodeIds) ? safe.savedEpisodeIds : [],
-        bookmarks: safe.bookmarks && typeof safe.bookmarks === 'object' ? safe.bookmarks : {},
-        subscribedShows: Array.isArray(safe.subscribedShows)
-          ? safe.subscribedShows
-          : JSON.parse(JSON.stringify(defaultPrefs.subscribedShows)),
-        updatedAt: Number(safe.updatedAt) || 0
-      };
-    }
-
-    function updateSyncStatusUI(text) {
-      const statusPill = document.getElementById('syncStatusPill');
-      if (statusPill) statusPill.textContent = text;
-    }
-
-    function setActiveSyncKeyUI(nextKey) {
-      activeSyncKey = nextKey;
-      localStorage.setItem('castflow_active_sync_key', activeSyncKey);
-      const keyInput = document.getElementById('syncKeyInput');
-      if (keyInput && document.activeElement !== keyInput) {
-        keyInput.value = activeSyncKey;
-      }
-    }
-
+// ... existing code ... -->
     async function pushFallbackSyncState(key, payload) {
       const cleanKey = String(key || '').trim();
       if (!cleanKey) return false;
@@ -524,21 +418,30 @@
       const serializedBody = JSON.stringify(bodyObj);
       let anySucceeded = false;
 
-      // 1. Primary CORS-friendly cloud text/JSON store keyed by Sync Key
+      // 1. KeyValue public store keyed by baseSyncKey (works without needing a blobId first)
       try {
-        const bucket = cloudBucketForKey(cleanKey);
-        const postRes = await fetch(`${TEXTDB_API}/update/?key=${encodeURIComponent(bucket)}`, {
+        const kvKey = encodeURIComponent(cloudBucketForKey(cleanKey));
+        const encodedVal = encodeURIComponent(serializedBody);
+        let upRes = await fetch(`${KEYVALUE_API}/UpdateValue/${kvKey}/${encodedVal}?t=${Date.now()}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-          cache: 'no-store',
-          body: serializedBody
+          cache: 'no-store'
         });
-        if (postRes.ok) {
+        if (!upRes.ok) {
+          await fetch(`${KEYVALUE_API}/Init/${kvKey}/empty?t=${Date.now()}`, {
+            method: 'POST',
+            cache: 'no-store'
+          });
+          upRes = await fetch(`${KEYVALUE_API}/UpdateValue/${kvKey}/${encodedVal}?t=${Date.now()}`, {
+            method: 'POST',
+            cache: 'no-store'
+          });
+        }
+        if (upRes.ok) {
           anySucceeded = true;
         }
       } catch (_) {}
 
-      // 2. Secondary JSONBlob store (persists exact blobId inside the Sync Key)
+      // 2. JSONBlob store (persists exact blobId inside the Sync Key)
       try {
         if (blobId) {
           const putRes = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
@@ -596,17 +499,21 @@
       const candidates = [];
 
       try {
-        const bucket = cloudBucketForKey(cleanKey);
-        const textRes = await fetch(`${TEXTDB_API}/?key=${encodeURIComponent(bucket)}&t=${Date.now()}`, {
+        const kvKey = encodeURIComponent(cloudBucketForKey(cleanKey));
+        const kvRes = await fetch(`${KEYVALUE_API}/GetValue/${kvKey}?t=${Date.now()}`, {
           method: 'GET',
           cache: 'no-store'
         });
-        if (textRes.ok) {
-          const rawText = await textRes.text();
-          if (rawText && rawText.trim().startsWith('{')) {
-            const parsedText = JSON.parse(rawText);
-            if (parsedText && typeof parsedText === 'object') {
-              candidates.push(parsedText);
+        if (kvRes.ok) {
+          const rawText = await kvRes.text();
+          let unquoted = rawText ? rawText.trim() : '';
+          if (unquoted.startsWith('"') && unquoted.endsWith('"')) {
+            try { unquoted = JSON.parse(unquoted); } catch (_) {}
+          }
+          if (typeof unquoted === 'string' && unquoted.trim().startsWith('{')) {
+            const parsedKv = JSON.parse(unquoted);
+            if (parsedKv && typeof parsedKv === 'object') {
+              candidates.push(parsedKv);
             }
           }
         }
@@ -653,7 +560,7 @@
 
         updateSyncStatusUI('Syncing...');
         const ok = await pushFallbackSyncState(key, payload);
-        updateSyncStatusUI(ok ? 'Cloud Synced' : 'Local Only');
+        updateSyncStatusUI(ok ? 'Synced' : 'Local Only');
       } catch (_) {
         updateSyncStatusUI('Local Only');
       }
@@ -748,13 +655,13 @@
         const remote = await pullFallbackSyncState(key);
         if (remote) {
           applyIncomingRemotePayload(remote);
-          updateSyncStatusUI('Cloud Synced');
+          updateSyncStatusUI('Synced');
           return true;
         }
 
         const payload = serializeSyncPayload();
         const seeded = await pushFallbackSyncState(key, payload);
-        updateSyncStatusUI(seeded ? 'Cloud Synced' : 'Local Only');
+        updateSyncStatusUI(seeded ? 'Synced' : 'Local Only');
         return seeded;
       } catch (_) {
         updateSyncStatusUI('Local Only');
