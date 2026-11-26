@@ -1004,7 +1004,7 @@
 
       for (const ep of endpoints) {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 7000);
+        const timer = setTimeout(() => ctrl.abort(), 6500);
         try {
           const res = await fetch(ep.url, { signal: ctrl.signal });
           clearTimeout(timer);
@@ -1024,6 +1024,42 @@
       return '';
     }
 
+    function fetchItunesJsonp(baseUrl) {
+      return new Promise((resolve) => {
+        const cbName = `__itunes_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        const script = document.createElement('script');
+        const sep = baseUrl.includes('?') ? '&' : '?';
+        let settled = false;
+
+        const cleanup = () => {
+          if (settled) return;
+          settled = true;
+          delete window[cbName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        };
+
+        const timer = setTimeout(() => {
+          cleanup();
+          resolve(null);
+        }, 7000);
+
+        window[cbName] = (data) => {
+          clearTimeout(timer);
+          cleanup();
+          resolve(data);
+        };
+
+        script.onerror = () => {
+          clearTimeout(timer);
+          cleanup();
+          resolve(null);
+        };
+
+        script.src = `${baseUrl}${sep}callback=${cbName}`;
+        document.head.appendChild(script);
+      });
+    }
+
     function parseItunesDuration(rawDur) {
       if (!rawDur) return 1200;
       const trimmed = String(rawDur).trim();
@@ -1035,29 +1071,46 @@
     }
 
     async function fetchEpisodesViaItunesLookup(showName, collectionId = '') {
-      let lookupUrl = collectionId
-        ? `https://itunes.apple.com/lookup?id=${encodeURIComponent(collectionId)}&entity=podcastEpisode&limit=20`
-        : `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=20&term=${encodeURIComponent(showName)}`;
+      let json = null;
 
-      const raw = await fetchTextWithFallback(lookupUrl);
-      if (!raw) return [];
-      try {
-        const json = JSON.parse(raw);
-        const results = (json?.results || []).filter(r => r.wrapperType === 'podcastEpisode' && r.episodeUrl);
-        return results.map((item, idx) => ({
-          id: `itunes-ep-${item.trackId || Date.now()}-${idx}`,
-          show: item.collectionName || showName,
-          title: item.trackName || `Episode ${idx + 1}`,
-          icon: '📡',
-          duration: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 1200,
-          audioUrl: item.episodeUrl,
-          segments: [{ id: `it-s-${idx}`, start: 0, end: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 1200, type: 'content', label: 'Main Content' }],
-          chapters: [{ start: 0, title: 'Start' }],
-          notes: item.description || item.shortDescription || ''
-        }));
-      } catch (_) {
-        return [];
+      if (collectionId) {
+        const lookupUrl = `https://itunes.apple.com/lookup?id=${encodeURIComponent(collectionId)}&entity=podcastEpisode&limit=25`;
+        json = await fetchItunesJsonp(lookupUrl);
+        if (!json) {
+          const raw = await fetchTextWithFallback(lookupUrl);
+          if (raw) {
+            try { json = JSON.parse(raw); } catch (_) {}
+          }
+        }
       }
+
+      if (!json || !(json.results || []).some(r => r.wrapperType === 'podcastEpisode')) {
+        const findShowUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=3&term=${encodeURIComponent(showName)}`;
+        const showJson = await fetchItunesJsonp(findShowUrl);
+        const matchedShow = (showJson?.results || []).find(r => r.collectionId);
+        if (matchedShow?.collectionId) {
+          const epLookupUrl = `https://itunes.apple.com/lookup?id=${encodeURIComponent(matchedShow.collectionId)}&entity=podcastEpisode&limit=25`;
+          json = await fetchItunesJsonp(epLookupUrl);
+        }
+      }
+
+      if (!json || !(json.results || []).some(r => r.wrapperType === 'podcastEpisode')) {
+        const searchEpUrl = `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=25&term=${encodeURIComponent(showName)}`;
+        json = await fetchItunesJsonp(searchEpUrl);
+      }
+
+      const results = (json?.results || []).filter(r => r.wrapperType === 'podcastEpisode' && r.episodeUrl);
+      return results.map((item, idx) => ({
+        id: `itunes-ep-${item.trackId || Date.now()}-${idx}`,
+        show: item.collectionName || showName,
+        title: item.trackName || `Episode ${idx + 1}`,
+        icon: '📡',
+        duration: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 1200,
+        audioUrl: item.episodeUrl,
+        segments: [{ id: `it-s-${idx}`, start: 0, end: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 1200, type: 'content', label: 'Main Content' }],
+        chapters: [{ start: 0, title: 'Start' }],
+        notes: item.description || item.shortDescription || ''
+      }));
     }
 
     async function loadEpisodesForShow(show) {
@@ -1219,25 +1272,6 @@
               } else {
                 showToast(`No episodes available for ${show.name}`);
               }
-            }
-          };
-
-          headerRow.querySelector('.play-show-btn').onclick = async () => {
-            if (showEps.length) {
-              selectEpisode(showEps[0].id, true);
-              switchTab('player');
-            } else if (show.feedUrl) {
-              runtime.expandedShowName = show.name;
-              await loadEpisodesForShow(show);
-              const refreshed = runtime.episodes.filter(e => e.show.toLowerCase() === show.name.toLowerCase());
-              if (refreshed.length) {
-                selectEpisode(refreshed[0].id, true);
-                switchTab('player');
-              } else {
-                showToast(`No episodes available for ${show.name}`);
-              }
-            } else {
-              showToast(`No episodes loaded yet for ${show.name}`);
             }
           };
 
@@ -1456,30 +1490,25 @@
       const searchUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=6&term=${encodeURIComponent(q)}`;
 
       try {
-        let data = null;
-        try {
-          const direct = await fetch(searchUrl);
-          if (direct.ok) data = await direct.json();
-        } catch (_) {}
-
+        let data = await fetchItunesJsonp(searchUrl);
         if (!data) {
-          const proxy = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(searchUrl)}`);
-          const wrapped = await proxy.json();
-          data = JSON.parse(wrapped.contents);
+          const raw = await fetchTextWithFallback(searchUrl);
+          if (raw) data = JSON.parse(raw);
         }
 
-        const results = (data?.results || []).filter(item => item.feedUrl);
+        const results = (data?.results || []).filter(item => item.feedUrl || item.collectionId);
         root.innerHTML = '';
 
         if (!results.length) {
-          root.innerHTML = `<p class="text-xs text-slate-500 py-1">No public RSS podcasts found for "${q}".</p>`;
+          root.innerHTML = `<p class="text-xs text-slate-500 py-1">No podcasts found for "${q}".</p>`;
           return;
         }
 
         results.forEach(item => {
           const showTitle = item.collectionName || item.trackName || 'Podcast';
           const author = item.artistName || '';
-          const feedUrl = item.feedUrl;
+          const feedUrl = item.feedUrl || '';
+          const collectionId = item.collectionId ? String(item.collectionId) : '';
           const alreadyFollowing = prefs.subscribedShows.some(s => s.name.toLowerCase() === showTitle.toLowerCase());
 
           const card = document.createElement('div');
@@ -1498,7 +1527,13 @@
             const btn = e.currentTarget;
             btn.textContent = 'Adding...';
             btn.disabled = true;
-            await subscribeToFeedUrl(feedUrl, showTitle);
+            ensureShowSubscription(showTitle, '📡', feedUrl);
+            const entry = prefs.subscribedShows.find(s => s.name.toLowerCase() === showTitle.toLowerCase());
+            if (entry && collectionId) entry.collectionId = collectionId;
+            runtime.expandedShowName = showTitle;
+            savePrefs();
+            renderLibrary();
+            await loadEpisodesForShow(entry || { name: showTitle, icon: '📡', feedUrl, collectionId });
             btn.textContent = '✓ Following';
             btn.className = 'dir-follow-btn px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 bg-slate-800 text-emerald-300 border border-emerald-500/30';
           };
@@ -1522,17 +1557,10 @@
         showToast(`Searching Apple Podcasts for "${searchTerm}"...`);
 
         const searchUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=5&term=${encodeURIComponent(searchTerm)}`;
-        let found = null;
-        const rawJson = await fetchTextWithFallback(searchUrl);
-        if (rawJson) {
-          try {
-            const json = JSON.parse(rawJson);
-            found = (json?.results || []).find(item => item.feedUrl) || (json?.results || [])[0] || null;
-          } catch (_) {}
-        }
+        const json = await fetchItunesJsonp(searchUrl);
+        const found = (json?.results || []).find(item => item.collectionId || item.feedUrl) || (json?.results || [])[0] || null;
 
         if (!found) {
-          showToast(`Added "${searchTerm}" to Library`);
           await loadEpisodesForShow({ name: searchTerm, icon: '📡', feedUrl: '' });
           return;
         }
@@ -1548,13 +1576,9 @@
         savePrefs();
         renderLibrary();
 
-        if (found.feedUrl) {
-          url = found.feedUrl;
-          if (!fallbackShowTitle) fallbackShowTitle = resolvedShowName;
-        } else {
-          await loadEpisodesForShow(subEntry || { name: resolvedShowName, icon: '📡', feedUrl: '', collectionId: found.collectionId });
-          return;
-        }
+        await loadEpisodesForShow(subEntry || { name: resolvedShowName, icon: '📡', feedUrl: found.feedUrl || '', collectionId: found.collectionId });
+        showToast(`Loaded ${resolvedShowName}`);
+        return;
       }
 
       if (!/^https?:\/\//i.test(url)) {
@@ -1807,6 +1831,14 @@
       switchTab(prefs.activeTab);
       selectEpisode(runtime.episodes[0].id, false);
       requestAnimationFrame(tickPlayback);
+
+      // Hydrate episodes for any user-added shows saved in localStorage
+      const builtInShows = new Set(['tech frontier weekly', 'midnight mystery files']);
+      prefs.subscribedShows.forEach(show => {
+        if (!builtInShows.has(show.name.toLowerCase())) {
+          loadEpisodesForShow(show);
+        }
+      });
     };
   </script>
 </body>
