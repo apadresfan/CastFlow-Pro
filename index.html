@@ -402,13 +402,137 @@
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
     const KEYVALUE_API = 'https://keyvalue.immanuel.co/api/KeyVal';
     const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
+    const KVDB_API = 'https://kvdb.io';
+    const TEXTDB_API = 'https://textdb.dev/api';
 
     function generateSyncKey() {
-// ... existing code ... -->
+      const rand = Math.random().toString(36).slice(2, 7);
+      const rand2 = Math.random().toString(36).slice(2, 7);
+      return `cf-${rand}-${rand2}`;
+    }
+
+    function parseSyncKeyParts(key) {
+      const clean = String(key || '').trim();
+      const splitIdx = clean.indexOf('--');
+      if (splitIdx !== -1) {
+        return {
+          baseKey: clean.slice(0, splitIdx) || generateSyncKey(),
+          blobId: clean.slice(splitIdx + 2).trim()
+        };
+      }
+      return { baseKey: clean || generateSyncKey(), blobId: '' };
+    }
+
+    function formatCombinedSyncKey(baseKey, blobId) {
+      const cleanBase = String(baseKey || '').trim() || generateSyncKey();
+      const cleanBlob = String(blobId || '').trim();
+      return cleanBlob ? `${cleanBase}--${cleanBlob}` : cleanBase;
+    }
+
+    function cloudBucketForKey(key) {
+      const { baseKey } = parseSyncKeyParts(key);
+      const safe = String(baseKey || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      return `castflow_${safe || 'default'}`;
+    }
+
+    function updateSyncStatusUI(statusText) {
+      const pill = document.getElementById('syncStatusPill');
+      if (!pill) return;
+      pill.textContent = statusText;
+      if (statusText === 'Synced') {
+        pill.className = 'font-mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+      } else if (statusText === 'Syncing...' || statusText === 'Pulling...') {
+        pill.className = 'font-mono text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30';
+      } else {
+        pill.className = 'font-mono text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700';
+      }
+    }
+
+    const defaultPrefs = {
+      speed: 1.0,
+      autoSkipAds: true,
+      silenceTrim: false,
+      voiceBoost: false,
+      adSecondsSaved: 0,
+      activeTab: 'player',
+      libraryFilter: 'all',
+      librarySearch: '',
+      librarySortOrder: 'newest',
+      hideListened: false,
+      subscribedShows: [
+        { name: 'Tech Frontier Weekly', icon: '🎙️', feedUrl: '', collectionId: null },
+        { name: 'Midnight Mystery Files', icon: '🕵️', feedUrl: '', collectionId: null }
+      ],
+      playedEpisodeIds: [],
+      savedEpisodeIds: [],
+      bookmarks: {},
+      updatedAt: 0
+    };
+
+    let prefs = JSON.parse(JSON.stringify(defaultPrefs));
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlSyncKey = (urlParams.get('sync') || '').trim();
+    let activeSyncKey = urlSyncKey || localStorage.getItem('castflow_active_sync_key') || generateSyncKey();
+
+    function setActiveSyncKeyUI(nextKey) {
+      const clean = String(nextKey || '').trim();
+      if (!clean) return;
+      activeSyncKey = clean;
+      localStorage.setItem('castflow_active_sync_key', activeSyncKey);
+      const keyInput = document.getElementById('syncKeyInput');
+      if (keyInput && keyInput.value !== activeSyncKey) {
+        keyInput.value = activeSyncKey;
+      }
+    }
+
+    function applyParsedPrefs(parsed) {
+      const p = parsed && typeof parsed === 'object' ? parsed : {};
+      prefs = {
+        ...JSON.parse(JSON.stringify(defaultPrefs)),
+        ...p,
+        speed: Number.isFinite(Number(p.speed)) ? Number(p.speed) : 1.0,
+        autoSkipAds: p.autoSkipAds !== undefined ? Boolean(p.autoSkipAds) : true,
+        silenceTrim: Boolean(p.silenceTrim),
+        voiceBoost: Boolean(p.voiceBoost),
+        adSecondsSaved: Number(p.adSecondsSaved) || 0,
+        activeTab: p.activeTab || 'player',
+        libraryFilter: ['all', 'shows', 'saved'].includes(p.libraryFilter) ? p.libraryFilter : 'all',
+        librarySearch: typeof p.librarySearch === 'string' ? p.librarySearch : '',
+        librarySortOrder: p.librarySortOrder === 'oldest' ? 'oldest' : 'newest',
+        hideListened: Boolean(p.hideListened),
+        subscribedShows: Array.isArray(p.subscribedShows) ? p.subscribedShows : JSON.parse(JSON.stringify(defaultPrefs.subscribedShows)),
+        playedEpisodeIds: Array.isArray(p.playedEpisodeIds) ? p.playedEpisodeIds : [],
+        savedEpisodeIds: Array.isArray(p.savedEpisodeIds) ? p.savedEpisodeIds : [],
+        bookmarks: p.bookmarks && typeof p.bookmarks === 'object' ? p.bookmarks : {},
+        updatedAt: Number(p.updatedAt) || 0
+      };
+    }
+
+    function serializeSyncPayload() {
+      return {
+        speed: prefs.speed,
+        autoSkipAds: prefs.autoSkipAds,
+        silenceTrim: prefs.silenceTrim,
+        voiceBoost: prefs.voiceBoost,
+        adSecondsSaved: prefs.adSecondsSaved,
+        activeTab: prefs.activeTab,
+        libraryFilter: prefs.libraryFilter,
+        librarySearch: prefs.librarySearch,
+        librarySortOrder: prefs.librarySortOrder,
+        hideListened: prefs.hideListened,
+        subscribedShows: prefs.subscribedShows,
+        playedEpisodeIds: prefs.playedEpisodeIds,
+        savedEpisodeIds: prefs.savedEpisodeIds,
+        bookmarks: prefs.bookmarks,
+        updatedAt: Number(prefs.updatedAt) || Date.now()
+      };
+    }
+
     async function pushFallbackSyncState(key, payload) {
       const cleanKey = String(key || '').trim();
       if (!cleanKey) return false;
       const { baseKey, blobId } = parseSyncKeyParts(cleanKey);
+      const bucket = cloudBucketForKey(cleanKey);
       const bodyObj = {
         ...payload,
         syncKey: cleanKey,
@@ -418,9 +542,9 @@
       const serializedBody = JSON.stringify(bodyObj);
       let anySucceeded = false;
 
-      // 1. KeyValue public store keyed by baseSyncKey (works without needing a blobId first)
+      // 1. KeyValue public store keyed by bucket
       try {
-        const kvKey = encodeURIComponent(cloudBucketForKey(cleanKey));
+        const kvKey = encodeURIComponent(bucket);
         const encodedVal = encodeURIComponent(serializedBody);
         let upRes = await fetch(`${KEYVALUE_API}/UpdateValue/${kvKey}/${encodedVal}?t=${Date.now()}`, {
           method: 'POST',
@@ -441,7 +565,33 @@
         }
       } catch (_) {}
 
-      // 2. JSONBlob store (persists exact blobId inside the Sync Key)
+      // 2. TextDB public key-value store
+      try {
+        const textDbRes = await fetch(`${TEXTDB_API}/create/${encodeURIComponent(bucket)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          cache: 'no-store',
+          body: serializedBody
+        });
+        if (textDbRes.ok) {
+          anySucceeded = true;
+        }
+      } catch (_) {}
+
+      // 3. KVDB public bucket store
+      try {
+        const kvdbRes = await fetch(`${KVDB_API}/${encodeURIComponent(bucket)}/profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: serializedBody
+        });
+        if (kvdbRes.ok) {
+          anySucceeded = true;
+        }
+      } catch (_) {}
+
+      // 4. JSONBlob store (persists exact blobId inside the Sync Key)
       try {
         if (blobId) {
           const putRes = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
@@ -496,10 +646,12 @@
       const cleanKey = String(key || '').trim();
       if (!cleanKey) return null;
       const { blobId } = parseSyncKeyParts(cleanKey);
+      const bucket = cloudBucketForKey(cleanKey);
       const candidates = [];
 
+      // 1. KeyValue store
       try {
-        const kvKey = encodeURIComponent(cloudBucketForKey(cleanKey));
+        const kvKey = encodeURIComponent(bucket);
         const kvRes = await fetch(`${KEYVALUE_API}/GetValue/${kvKey}?t=${Date.now()}`, {
           method: 'GET',
           cache: 'no-store'
@@ -519,6 +671,38 @@
         }
       } catch (_) {}
 
+      // 2. TextDB store
+      try {
+        const tRes = await fetch(`${TEXTDB_API}/${encodeURIComponent(bucket)}?t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (tRes.ok) {
+          const tText = await tRes.text();
+          if (tText && tText.trim().startsWith('{')) {
+            const parsedT = JSON.parse(tText.trim());
+            if (parsedT && typeof parsedT === 'object') {
+              candidates.push(parsedT);
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 3. KVDB store
+      try {
+        const kRes = await fetch(`${KVDB_API}/${encodeURIComponent(bucket)}/profile?t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (kRes.ok) {
+          const parsedK = await kRes.json();
+          if (parsedK && typeof parsedK === 'object') {
+            candidates.push(parsedK);
+          }
+        }
+      } catch (_) {}
+
+      // 4. JSONBlob store
       if (blobId) {
         try {
           const res = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}?t=${Date.now()}`, {
