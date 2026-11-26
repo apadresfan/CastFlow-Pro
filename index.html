@@ -182,11 +182,11 @@
 
     <!-- VIEW 2: QUEUE & FEEDS -->
     <section id="view-queue" class="hidden px-4 pt-4 space-y-5">
-      <!-- Add RSS Feed -->
+      <!-- Add RSS Feed or Apple Podcasts Link -->
       <div class="p-4 rounded-2xl bg-card border border-slate-800 space-y-2.5">
-        <h2 class="text-sm font-bold text-white">Add Podcast RSS Feed</h2>
+        <h2 class="text-sm font-bold text-white">Add RSS or Apple Podcasts Link</h2>
         <div class="flex gap-2">
-          <input id="rssUrlInput" type="url" placeholder="https://example.com/feed.xml" class="flex-1 bg-surface border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+          <input id="rssUrlInput" type="url" placeholder="RSS URL or podcasts.apple.com link..." class="flex-1 bg-surface border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
           <button id="addRssBtn" type="button" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-sm text-white shrink-0">
             Add
           </button>
@@ -255,14 +255,29 @@
 
     <!-- VIEW 4: LIBRARY (SUBSCRIBED SHOWS & SAVED EPISODES) -->
     <section id="view-library" class="hidden px-4 pt-4 space-y-5">
-      <!-- Follow / Add Show or Private RSS Feed -->
+      <!-- Search Apple Podcasts Directory -->
       <div class="p-4 rounded-2xl bg-card border border-slate-800 space-y-2.5">
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-bold text-white">Follow Show / Private RSS</h2>
+          <h2 class="text-sm font-bold text-white">Discover &amp; Search Apple Podcasts</h2>
+          <span class="text-[11px] font-mono text-emerald-400">iTunes Directory</span>
+        </div>
+        <div class="flex gap-2">
+          <input id="appleDirectorySearchInput" type="search" placeholder="Search any podcast by name..." class="flex-1 bg-surface border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          <button id="appleDirectorySearchBtn" type="button" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-sm text-white shrink-0">
+            Find
+          </button>
+        </div>
+        <div id="appleDirectoryResultsRoot" class="space-y-2"></div>
+      </div>
+
+      <!-- Follow / Add Show or Private RSS / Apple Link -->
+      <div class="p-4 rounded-2xl bg-card border border-slate-800 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-white">Follow Show / Apple Link / RSS</h2>
           <span class="text-[11px] font-mono text-indigo-400">Saved Locally</span>
         </div>
         <div class="flex gap-2">
-          <input id="libraryFeedInput" type="url" placeholder="Private or public RSS feed URL..." class="flex-1 bg-surface border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+          <input id="libraryFeedInput" type="url" placeholder="Paste RSS or podcasts.apple.com link..." class="flex-1 bg-surface border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
           <button id="libraryFollowBtn" type="button" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-sm text-white shrink-0">
             Follow
           </button>
@@ -359,703 +374,117 @@
 
   <script>
     // =========================================================================
-    // 1. STATE & PERSISTENCE
+    // 6. FEEDS, APPLE PODCASTS RESOLVER, LOCAL AUDIO & OPML
     // =========================================================================
-    const STORAGE_KEY = 'castflow_mobile_state_v1';
+    async function resolveApplePodcastUrl(rawUrl) {
+      const idMatch = rawUrl.match(/podcasts\.apple\.com\/[^?#]*\/id(\d+)/i) || rawUrl.match(/[?&]id=(\d+)/i);
+      if (!idMatch) return null;
+      const appleId = idMatch[1];
+      const lookupUrl = `https://itunes.apple.com/lookup?id=${appleId}&entity=podcast`;
 
-    const defaultPrefs = {
-      activeTab: 'player',
-      speed: 1.0,
-      autoSkipAds: true,
-      silenceTrim: true,
-      voiceBoost: true,
-      adTimeSaved: 0,
-      bookmarks: {},
-      customFeeds: [],
-      subscribedShows: [
-        { id: 'show-tech-frontier', name: 'Tech Frontier Weekly', icon: '🎙️', feedUrl: 'demo://tech-frontier', saved: true },
-        { id: 'show-mobile-craft', name: 'Mobile Craft', icon: '📱', feedUrl: 'demo://mobile-craft', saved: true }
-      ],
-      savedEpisodeIds: ['demo-1'],
-      playedEpisodeIds: [],
-      libraryFilter: 'all',
-      librarySearch: ''
-    };
-
-    const prefs = loadPrefs();
-    const runtime = {
-      episodes: [],
-      queueIds: [],
-      currentId: null,
-      isPlaying: false,
-      lastSkippedAdId: null,
-      ignoredAdIds: new Set(),
-      audioCtx: null,
-      analyser: null,
-      timeBuffer: null,
-      compressor: null,
-      gainNode: null
-    };
-
-    const audioEl = document.getElementById('audioEl');
-
-    function loadPrefs() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return { ...defaultPrefs };
-        const parsed = JSON.parse(raw);
-        return {
-          ...defaultPrefs,
-          ...parsed,
-          subscribedShows: Array.isArray(parsed.subscribedShows) ? parsed.subscribedShows : [...defaultPrefs.subscribedShows],
-          savedEpisodeIds: Array.isArray(parsed.savedEpisodeIds) ? parsed.savedEpisodeIds : [...defaultPrefs.savedEpisodeIds],
-          playedEpisodeIds: Array.isArray(parsed.playedEpisodeIds) ? parsed.playedEpisodeIds : []
-        };
-      } catch (_) {
-        return { ...defaultPrefs };
-      }
-    }
-
-    function savePrefs() {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          activeTab: prefs.activeTab,
-          speed: prefs.speed,
-          autoSkipAds: prefs.autoSkipAds,
-          silenceTrim: prefs.silenceTrim,
-          voiceBoost: prefs.voiceBoost,
-          adTimeSaved: prefs.adTimeSaved,
-          bookmarks: prefs.bookmarks,
-          customFeeds: prefs.customFeeds,
-          subscribedShows: prefs.subscribedShows,
-          savedEpisodeIds: prefs.savedEpisodeIds,
-          playedEpisodeIds: prefs.playedEpisodeIds,
-          libraryFilter: prefs.libraryFilter,
-          librarySearch: prefs.librarySearch
-        }));
+        const directRes = await fetch(lookupUrl);
+        if (directRes.ok) {
+          const json = await directRes.json();
+          const hit = json.results && json.results[0];
+          if (hit && hit.feedUrl) return { feedUrl: hit.feedUrl, title: hit.collectionName || hit.trackName };
+        }
       } catch (_) {}
-    }
-
-    // =========================================================================
-    // 2. AUDIO SYNTHESIS & COMMERCIAL DETECTION
-    // =========================================================================
-    function createWavUrl(segments, seed = 0) {
-      const sampleRate = 22050;
-      const totalSec = segments[segments.length - 1].end;
-      const totalSamples = Math.floor(totalSec * sampleRate);
-      const pcm = new Float32Array(totalSamples);
-
-      for (const seg of segments) {
-        const start = Math.floor(seg.start * sampleRate);
-        const end = Math.min(totalSamples, Math.floor(seg.end * sampleRate));
-
-        for (let i = start; i < end; i++) {
-          const t = i / sampleRate;
-          const local = t - seg.start;
-
-          if (seg.type === 'ad') {
-            // Compressed commercial bed + rhythmic announcer cadence
-            const bed = Math.sin(2 * Math.PI * 330 * t) * 0.22 + Math.sin(2 * Math.PI * 493.88 * t) * 0.16;
-            const voice = Math.sin(2 * Math.PI * (170 + 40 * Math.sin(8 * t)) * t) * (0.28 * (0.5 + 0.5 * Math.sin(13 * local)));
-            pcm[i] = Math.tanh((bed + voice) * 2.0) * 0.6;
-          } else {
-            // Speech with natural breath pauses so Silence Trim is noticeable
-            const cycle = (local + seed) % 3.2;
-            if (cycle > 2.55) {
-              pcm[i] = 0;
-            } else {
-              const env = Math.max(0, Math.sin(Math.PI * ((cycle * 4) % 1)));
-              const f0 = 120 + 25 * Math.sin(2.5 * t + seed);
-              pcm[i] = (Math.sin(2 * Math.PI * f0 * t) * 0.25 + Math.sin(2 * Math.PI * f0 * 2 * t) * 0.1) * env;
-            }
-          }
-        }
-      }
-
-      const buffer = new ArrayBuffer(44 + pcm.length * 2);
-      const view = new DataView(buffer);
-      const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-
-      writeStr(0, 'RIFF');
-      view.setUint32(4, 36 + pcm.length * 2, true);
-      writeStr(8, 'WAVE');
-      writeStr(12, 'fmt ');
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, 1, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * 2, true);
-      view.setUint16(32, 2, true);
-      view.setUint16(34, 16, true);
-      writeStr(36, 'data');
-      view.setUint32(40, pcm.length * 2, true);
-
-      let offset = 44;
-      for (let i = 0; i < pcm.length; i++, offset += 2) {
-        const clamped = Math.max(-1, Math.min(1, pcm[i]));
-        view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-      }
-
-      return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
-    }
-
-    function buildDemoEpisodes() {
-      const segs1 = [
-        { id: 'ep1-c1', start: 0, end: 22, type: 'content', label: 'Main Content' },
-        { id: 'ep1-ad1', start: 22, end: 36, type: 'ad', label: 'Sponsor Break' },
-        { id: 'ep1-c2', start: 36, end: 60, type: 'content', label: 'Deep Dive' },
-        { id: 'ep1-ad2', start: 60, end: 72, type: 'ad', label: 'Mid-Roll Ad' },
-        { id: 'ep1-c3', start: 72, end: 86, type: 'content', label: 'Wrap-Up' }
-      ];
-
-      const segs2 = [
-        { id: 'ep2-c1', start: 0, end: 18, type: 'content', label: 'Opening Topic' },
-        { id: 'ep2-ad1', start: 18, end: 30, type: 'ad', label: 'Sponsor Break' },
-        { id: 'ep2-c2', start: 30, end: 52, type: 'content', label: 'Listener Notes' }
-      ];
-
-      return [
-        {
-          id: 'demo-1',
-          show: 'Tech Frontier Weekly',
-          title: 'Ep. 142: Neural Audio & Ad Shield',
-          icon: '🎙️',
-          duration: 86,
-          audioUrl: createWavUrl(segs1, 0),
-          segments: segs1,
-          chapters: [
-            { start: 0, title: 'Intro & Topic Overview' },
-            { start: 22, title: 'Commercial Break (Auto-Skippable)' },
-            { start: 36, title: 'Silence Trim & Voice Boost' },
-            { start: 60, title: 'Mid-Roll Commercial' },
-            { start: 72, title: 'Closing Thoughts' }
-          ],
-          notes: 'Demo episode with two simulated commercial segments so you can test automatic ad-skipping and the undo toast on mobile.'
-        },
-        {
-          id: 'demo-2',
-          show: 'Mobile Craft',
-          title: 'Ep. 54: Thumb-Driven Audio Apps',
-          icon: '📱',
-          duration: 52,
-          audioUrl: createWavUrl(segs2, 1.4),
-          segments: segs2,
-          chapters: [
-            { start: 0, title: 'One-Handed Controls' },
-            { start: 18, title: 'Sponsor Spot' },
-            { start: 30, title: 'Driving Mode Safety' }
-          ],
-          notes: 'Second demo episode queued up automatically when the first episode ends.'
-        }
-      ];
-    }
-
-    async function detectAdsFromBuffer(arrayBuffer, duration) {
-      if (!runtime.audioCtx || !arrayBuffer) {
-        return [{ id: 'def-c', start: 0, end: duration || 60, type: 'content', label: 'Main Content' }];
-      }
 
       try {
-        const decoded = await runtime.audioCtx.decodeAudioData(arrayBuffer.slice(0));
-        const ch = decoded.getChannelData(0);
-        const sr = decoded.sampleRate;
-        const winSamples = sr * 2;
-        const windows = [];
+        const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(lookupUrl)}`);
+        const wrapped = await proxyRes.json();
+        const json = JSON.parse(wrapped.contents);
+        const hit = json.results && json.results[0];
+        if (hit && hit.feedUrl) return { feedUrl: hit.feedUrl, title: hit.collectionName || hit.trackName };
+      } catch (_) {}
 
-        for (let i = 0; i < ch.length; i += winSamples) {
-          let sumSq = 0;
-          let peak = 0;
-          const end = Math.min(ch.length, i + winSamples);
-          for (let j = i; j < end; j++) {
-            const v = Math.abs(ch[j]);
-            sumSq += v * v;
-            if (v > peak) peak = v;
-          }
-          const rms = Math.sqrt(sumSq / (end - i));
-          const crest = rms > 0 ? peak / rms : 0;
-          windows.push({ t: i / sr, rms, crest });
-        }
-
-        const avgRms = windows.reduce((acc, w) => acc + w.rms, 0) / (windows.length || 1);
-        const ads = [];
-        let adStart = null;
-
-        for (const w of windows) {
-          const looksLikeAd = w.rms > avgRms * 1.35 && w.crest < 5.2;
-          if (looksLikeAd && adStart === null && w.t > 4) {
-            adStart = w.t;
-          } else if (!looksLikeAd && adStart !== null) {
-            if (w.t - adStart >= 6) {
-              ads.push({ id: `ad-${Math.round(adStart)}`, start: adStart, end: w.t, type: 'ad', label: 'Detected Ad' });
-            }
-            adStart = null;
-          }
-        }
-
-        const total = decoded.duration || duration || 60;
-        if (ads.length === 0) {
-          return [{ id: 'seg-all', start: 0, end: total, type: 'content', label: 'Main Content' }];
-        }
-
-        const merged = [];
-        let cursor = 0;
-        ads.forEach((ad, idx) => {
-          if (ad.start > cursor) merged.push({ id: `c-${idx}`, start: cursor, end: ad.start, type: 'content', label: 'Main Content' });
-          merged.push(ad);
-          cursor = Math.max(cursor, ad.end);
-        });
-        if (cursor < total) merged.push({ id: 'c-end', start: cursor, end: total, type: 'content', label: 'Main Content' });
-        return merged;
-      } catch (_) {
-        return [{ id: 'seg-fb', start: 0, end: duration || 60, type: 'content', label: 'Main Content' }];
-      }
+      return null;
     }
 
-    // =========================================================================
-    // 3. WEB AUDIO GRAPH (VOICE BOOST & SILENCE DETECTION)
-    // =========================================================================
-    function ensureAudioGraph() {
-      if (!runtime.audioCtx) {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        runtime.audioCtx = new Ctx();
-        const src = runtime.audioCtx.createMediaElementSource(audioEl);
-        runtime.compressor = runtime.audioCtx.createDynamicsCompressor();
-        runtime.compressor.threshold.value = -22;
-        runtime.compressor.ratio.value = 5;
+    async function searchApplePodcastsDirectory(term) {
+      const q = (term || '').trim();
+      const root = document.getElementById('appleDirectoryResultsRoot');
+      if (!q || !root) return;
 
-        runtime.gainNode = runtime.audioCtx.createGain();
-        runtime.analyser = runtime.audioCtx.createAnalyser();
-        runtime.analyser.fftSize = 512;
-        runtime.timeBuffer = new Float32Array(runtime.analyser.fftSize);
+      root.innerHTML = `<p class="text-xs text-slate-400 py-1">Searching Apple Podcasts for "${q}"...</p>`;
+      const searchUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=6&term=${encodeURIComponent(q)}`;
 
-        src.connect(runtime.compressor);
-        runtime.compressor.connect(runtime.gainNode);
-        runtime.gainNode.connect(runtime.analyser);
-        runtime.analyser.connect(runtime.audioCtx.destination);
-      }
-      if (runtime.audioCtx.state === 'suspended') {
-        runtime.audioCtx.resume();
-      }
-      applyAudioSettings();
-    }
-
-    function applyAudioSettings() {
-      audioEl.preservesPitch = true;
-      audioEl.playbackRate = prefs.speed;
-      if (runtime.compressor) {
-        runtime.compressor.threshold.value = prefs.voiceBoost ? -22 : 0;
-        runtime.compressor.ratio.value = prefs.voiceBoost ? 5 : 1;
-      }
-      if (runtime.gainNode) {
-        runtime.gainNode.gain.value = prefs.voiceBoost ? 1.2 : 1.0;
-      }
-    }
-
-    // =========================================================================
-    // 4. PLAYBACK, AD SKIPPING & TOASTS
-    // =========================================================================
-    function currentEpisode() {
-      return runtime.episodes.find(ep => ep.id === runtime.currentId) || runtime.episodes[0];
-    }
-
-    function selectEpisode(id, shouldPlay = false) {
-      const ep = runtime.episodes.find(item => item.id === id);
-      if (!ep) return;
-      runtime.currentId = ep.id;
-      runtime.lastSkippedAdId = null;
-      runtime.ignoredAdIds.clear();
-      audioEl.src = ep.audioUrl;
-      applyAudioSettings();
-      renderPlayerHeader(ep);
-      renderScrubberMarkers(ep);
-      renderExtras(ep);
-      renderQueue();
-      renderLibrary();
-      if (shouldPlay) setPlaying(true);
-    }
-
-    async function setPlaying(play) {
-      ensureAudioGraph();
-      if (play) {
+      try {
+        let data = null;
         try {
-          await audioEl.play();
-          runtime.isPlaying = true;
-        } catch (_) {
-          runtime.isPlaying = false;
-        }
-      } else {
-        audioEl.pause();
-        runtime.isPlaying = false;
-      }
-      syncPlayButtons();
-    }
+          const direct = await fetch(searchUrl);
+          if (direct.ok) data = await direct.json();
+        } catch (_) {}
 
-    function syncPlayButtons() {
-      const glyph = runtime.isPlaying ? '❚❚' : '▶';
-      document.getElementById('playPauseGlyph').textContent = glyph;
-      document.getElementById('carPlayBtn').textContent = glyph;
-    }
-
-    function seekSeconds(sec) {
-      const dur = audioEl.duration || currentEpisode()?.duration || 0;
-      audioEl.currentTime = Math.max(0, Math.min(dur, sec));
-      syncProgress();
-    }
-
-    function showToast(msg, onUndo = null) {
-      const root = document.getElementById('toastRoot');
-      const el = document.createElement('div');
-      el.className = 'pointer-events-auto px-4 py-3 rounded-2xl bg-card border border-amber-500/50 text-white text-xs font-semibold shadow-xl flex items-center justify-between gap-3';
-      el.innerHTML = `<span>${msg}</span>`;
-
-      if (onUndo) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold shrink-0';
-        btn.textContent = 'Undo / Hear Ad';
-        btn.onclick = () => { onUndo(); el.remove(); };
-        el.appendChild(btn);
-      }
-
-      root.appendChild(el);
-      setTimeout(() => el.remove(), 5000);
-    }
-
-    function tickPlayback() {
-      const ep = currentEpisode();
-      const cur = audioEl.currentTime || 0;
-      const dur = audioEl.duration || ep?.duration || 1;
-
-      if (runtime.isPlaying && ep) {
-        const activeSeg = (ep.segments || []).find(s => cur >= s.start && cur < s.end - 0.15);
-        const skipNowBtn = document.getElementById('skipAdNowBtn');
-        const badge = document.getElementById('segmentBadge');
-
-        if (activeSeg && activeSeg.type === 'ad') {
-          badge.textContent = `Ad: ${activeSeg.label}`;
-          badge.className = 'inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 mb-1';
-          skipNowBtn.classList.remove('hidden');
-
-          if (prefs.autoSkipAds && !runtime.ignoredAdIds.has(activeSeg.id) && runtime.lastSkippedAdId !== activeSeg.id) {
-            runtime.lastSkippedAdId = activeSeg.id;
-            const savedSec = Math.max(1, Math.round(activeSeg.end - cur));
-            const returnPoint = cur;
-            prefs.adTimeSaved += savedSec;
-            savePrefs();
-            updateAdSavedPill();
-
-            audioEl.currentTime = Math.min(dur - 0.2, activeSeg.end);
-            showToast(`Skipped ${savedSec}s commercial`, () => {
-              runtime.ignoredAdIds.add(activeSeg.id);
-              audioEl.currentTime = returnPoint;
-            });
-          }
-        } else {
-          badge.textContent = activeSeg ? activeSeg.label : 'Main Content';
-          badge.className = 'inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 mb-1';
-          skipNowBtn.classList.add('hidden');
+        if (!data) {
+          const proxy = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(searchUrl)}`);
+          const wrapped = await proxy.json();
+          data = JSON.parse(wrapped.contents);
         }
 
-        // Silence trim adjustment
-        if (prefs.silenceTrim && runtime.analyser && runtime.timeBuffer) {
-          runtime.analyser.getFloatTimeDomainData(runtime.timeBuffer);
-          let sq = 0;
-          for (let i = 0; i < runtime.timeBuffer.length; i++) sq += runtime.timeBuffer[i] ** 2;
-          const rms = Math.sqrt(sq / runtime.timeBuffer.length);
-          const targetRate = rms < 0.025 ? Math.min(2.5, prefs.speed * 1.5) : prefs.speed;
-          if (Math.abs(audioEl.playbackRate - targetRate) > 0.05) {
-            audioEl.playbackRate = targetRate;
-          }
+        const results = (data?.results || []).filter(item => item.feedUrl);
+        root.innerHTML = '';
+
+        if (!results.length) {
+          root.innerHTML = `<p class="text-xs text-slate-500 py-1">No public RSS podcasts found for "${q}".</p>`;
+          return;
         }
-      }
 
-      syncProgress();
-      requestAnimationFrame(tickPlayback);
-    }
+        results.forEach(item => {
+          const showTitle = item.collectionName || item.trackName || 'Podcast';
+          const author = item.artistName || '';
+          const feedUrl = item.feedUrl;
+          const alreadyFollowing = prefs.subscribedShows.some(s => s.name.toLowerCase() === showTitle.toLowerCase());
 
-    // =========================================================================
-    // 5. UI RENDERERS
-    // =========================================================================
-    function fmt(sec) {
-      if (!isFinite(sec) || sec < 0) return '00:00';
-      const m = Math.floor(sec / 60);
-      const s = Math.floor(sec % 60);
-      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    }
-
-    function updateAdSavedPill() {
-      document.getElementById('adSavedPill').textContent = `${prefs.adTimeSaved}s ads skipped`;
-    }
-
-    function renderPlayerHeader(ep) {
-      document.getElementById('headerShowLabel').textContent = ep.show;
-      document.getElementById('episodeTitle').textContent = ep.title;
-      document.getElementById('coverIcon').textContent = ep.icon || '🎧';
-      document.getElementById('carShowTitle').textContent = ep.show;
-      document.getElementById('carEpTitle').textContent = ep.title;
-    }
-
-    function renderScrubberMarkers(ep) {
-      const root = document.getElementById('scrubberMarkers');
-      const dur = audioEl.duration || ep.duration || 1;
-      root.innerHTML = '';
-      (ep.segments || []).forEach(seg => {
-        const div = document.createElement('div');
-        div.style.width = `${Math.max(1, ((seg.end - seg.start) / dur) * 100)}%`;
-        div.className = seg.type === 'ad' ? 'h-full ad-marker' : 'h-full bg-transparent';
-        root.appendChild(div);
-      });
-    }
-
-    function syncProgress() {
-      const ep = currentEpisode();
-      const cur = audioEl.currentTime || 0;
-      const dur = audioEl.duration || ep?.duration || 1;
-      const pct = Math.min(100, Math.max(0, (cur / dur) * 100));
-      document.getElementById('scrubberProgress').style.width = `${pct}%`;
-      document.getElementById('timeCurrent').textContent = fmt(cur);
-      document.getElementById('timeRemaining').textContent = `-${fmt(Math.max(0, dur - cur))}`;
-      document.getElementById('carClock').textContent = fmt(cur);
-    }
-
-    function renderQueue() {
-      const root = document.getElementById('queueListRoot');
-      document.getElementById('queueLengthLabel').textContent = `${runtime.queueIds.length} episodes`;
-      root.innerHTML = '';
-
-      runtime.queueIds.forEach((id, idx) => {
-        const ep = runtime.episodes.find(e => e.id === id);
-        if (!ep) return;
-        const active = ep.id === runtime.currentId;
-        const row = document.createElement('div');
-        row.className = `p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${active ? 'bg-indigo-600/15 border-indigo-500' : 'bg-card border-slate-800'}`;
-        row.innerHTML = `
-          <button type="button" class="text-left flex-1 min-w-0">
-            <div class="text-[11px] font-bold text-indigo-400 truncate">${ep.show}</div>
-            <div class="text-sm font-bold text-white truncate">${ep.title}</div>
-          </button>
-          <button type="button" class="px-2.5 py-1.5 rounded-xl bg-cardAlt text-xs text-slate-300 border border-slate-700">✕</button>
-        `;
-        row.querySelector('button').onclick = () => {
-          selectEpisode(ep.id, true);
-          switchTab('player');
-        };
-        row.querySelectorAll('button')[1].onclick = () => {
-          runtime.queueIds.splice(idx, 1);
-          renderQueue();
-        };
-        root.appendChild(row);
-      });
-    }
-
-    function renderExtras(ep) {
-      const bmRoot = document.getElementById('bookmarksListRoot');
-      const items = prefs.bookmarks[ep.id] || [];
-      bmRoot.innerHTML = items.length ? '' : `<p class="text-xs text-slate-500">No bookmarks for this episode.</p>`;
-      items.forEach(bm => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'w-full p-3 rounded-xl bg-card border border-slate-800 flex items-center justify-between text-left text-xs';
-        btn.innerHTML = `<span class="text-slate-200 font-medium">${bm.note}</span><span class="font-mono text-emerald-400 font-bold">${fmt(bm.time)}</span>`;
-        btn.onclick = () => { seekSeconds(bm.time); switchTab('player'); };
-        bmRoot.appendChild(btn);
-      });
-
-      const chRoot = document.getElementById('chaptersListRoot');
-      chRoot.innerHTML = '';
-      (ep.chapters || []).forEach(ch => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'w-full p-3 rounded-xl bg-card border border-slate-800 flex items-center justify-between text-left text-xs';
-        btn.innerHTML = `<span class="text-slate-200 font-medium">${ch.title}</span><span class="font-mono text-indigo-400 font-bold">${fmt(ch.start)}</span>`;
-        btn.onclick = () => { seekSeconds(ch.start); switchTab('player'); };
-        chRoot.appendChild(btn);
-      });
-
-      document.getElementById('episodeNotesText').textContent = ep.notes || 'No episode notes.';
-    }
-
-    // =========================================================================
-    // LIBRARY VIEW RENDERING & ACTIONS
-    // =========================================================================
-    function ensureShowSubscription(showName, icon = '🎙️', feedUrl = '') {
-      const cleanName = (showName || 'Podcast Show').trim();
-      const exists = prefs.subscribedShows.find(s => s.name.toLowerCase() === cleanName.toLowerCase());
-      if (!exists) {
-        prefs.subscribedShows.unshift({
-          id: `show-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          name: cleanName,
-          icon,
-          feedUrl,
-          saved: true
-        });
-        savePrefs();
-      }
-    }
-
-    function addEpisodeToQueue(epId) {
-      if (!runtime.queueIds.includes(epId)) {
-        runtime.queueIds.push(epId);
-        renderQueue();
-        showToast('Added to Up Next queue');
-      } else {
-        showToast('Already in Up Next queue');
-      }
-    }
-
-    function toggleSavedEpisode(epId) {
-      const idx = prefs.savedEpisodeIds.indexOf(epId);
-      if (idx === -1) {
-        prefs.savedEpisodeIds.push(epId);
-        showToast('Episode saved to Library');
-      } else {
-        prefs.savedEpisodeIds.splice(idx, 1);
-        showToast('Removed from saved episodes');
-      }
-      savePrefs();
-      renderLibrary();
-    }
-
-    function renderLibrary() {
-      const showsRoot = document.getElementById('libraryShowsRoot');
-      const episodesRoot = document.getElementById('libraryEpisodesRoot');
-      const showsBlock = document.getElementById('libraryShowsBlock');
-      const episodesBlock = document.getElementById('libraryEpisodesBlock');
-      if (!showsRoot || !episodesRoot) return;
-
-      const query = (prefs.librarySearch || '').trim().toLowerCase();
-      const filter = prefs.libraryFilter || 'all';
-
-      document.querySelectorAll('.lib-filter-btn').forEach(btn => {
-        const active = btn.dataset.libFilter === filter;
-        btn.className = active
-          ? 'lib-filter-btn py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold'
-          : 'lib-filter-btn py-2 rounded-xl bg-cardAlt text-slate-300 border border-slate-700 text-xs font-bold';
-      });
-
-      const matchingShows = prefs.subscribedShows.filter(show => {
-        if (!query) return true;
-        return show.name.toLowerCase().includes(query) || (show.feedUrl || '').toLowerCase().includes(query);
-      });
-
-      showsBlock.classList.toggle('hidden', filter === 'saved');
-      document.getElementById('libraryShowsCount').textContent = `${matchingShows.length} ${matchingShows.length === 1 ? 'show' : 'shows'}`;
-      showsRoot.innerHTML = '';
-
-      if (!matchingShows.length) {
-        showsRoot.innerHTML = `<p class="text-xs text-slate-500 p-3 rounded-xl bg-card border border-slate-800">No matching subscribed shows.</p>`;
-      } else {
-        matchingShows.forEach(show => {
-          const epCount = runtime.episodes.filter(e => e.show.toLowerCase() === show.name.toLowerCase()).length;
           const card = document.createElement('div');
-          card.className = 'p-3.5 rounded-2xl bg-card border border-slate-800 flex items-center justify-between gap-3';
+          card.className = 'p-3 rounded-xl bg-surface border border-slate-800 flex items-center justify-between gap-2.5';
           card.innerHTML = `
-            <div class="flex items-center gap-3 min-w-0 flex-1">
-              <div class="w-11 h-11 rounded-xl bg-cardAlt border border-slate-700 flex items-center justify-center text-xl shrink-0">${show.icon || '🎙️'}</div>
-              <div class="min-w-0">
-                <div class="text-sm font-bold text-white truncate">${show.name}</div>
-                <div class="text-[11px] font-mono text-slate-400 truncate">${epCount} ${epCount === 1 ? 'episode' : 'episodes'} · Subscribed</div>
-              </div>
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-bold text-white truncate">${showTitle}</div>
+              <div class="text-[11px] text-slate-400 truncate">${author}</div>
             </div>
-            <button type="button" class="unfollow-btn px-3 py-1.5 rounded-xl bg-cardAlt hover:bg-rose-950/60 text-xs font-semibold text-rose-300 border border-slate-700 shrink-0">
-              Unfollow
+            <button type="button" class="dir-follow-btn px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 ${alreadyFollowing ? 'bg-slate-800 text-emerald-300 border border-emerald-500/30' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}">
+              ${alreadyFollowing ? '✓ Following' : '+ Follow'}
             </button>
           `;
-          card.querySelector('.unfollow-btn').onclick = () => {
-            prefs.subscribedShows = prefs.subscribedShows.filter(s => s.id !== show.id);
-            savePrefs();
-            renderLibrary();
-            showToast(`Unfollowed ${show.name}`);
+
+          card.querySelector('.dir-follow-btn').onclick = async (e) => {
+            const btn = e.currentTarget;
+            btn.textContent = 'Adding...';
+            btn.disabled = true;
+            await subscribeToFeedUrl(feedUrl, showTitle);
+            btn.textContent = '✓ Following';
+            btn.className = 'dir-follow-btn px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 bg-slate-800 text-emerald-300 border border-emerald-500/30';
           };
-          showsRoot.appendChild(card);
+          root.appendChild(card);
         });
-      }
-
-      const candidateEpisodes = runtime.episodes.filter(ep => {
-        if (filter === 'saved' && !prefs.savedEpisodeIds.includes(ep.id)) return false;
-        if (!query) return true;
-        return ep.title.toLowerCase().includes(query) || ep.show.toLowerCase().includes(query);
-      });
-
-      episodesBlock.classList.toggle('hidden', filter === 'shows');
-      document.getElementById('libraryEpisodesCount').textContent = `${candidateEpisodes.length} ${candidateEpisodes.length === 1 ? 'episode' : 'episodes'}`;
-      episodesRoot.innerHTML = '';
-
-      if (!candidateEpisodes.length) {
-        episodesRoot.innerHTML = `<p class="text-xs text-slate-500 p-3 rounded-xl bg-card border border-slate-800">No episodes match your current view or search.</p>`;
-      } else {
-        candidateEpisodes.forEach(ep => {
-          const isSaved = prefs.savedEpisodeIds.includes(ep.id);
-          const isPlayed = prefs.playedEpisodeIds.includes(ep.id);
-          const statusLabel = isPlayed ? 'Played' : isSaved ? 'Saved' : 'Available';
-          const statusStyle = isPlayed
-            ? 'text-slate-400 bg-slate-800'
-            : isSaved
-              ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/30'
-              : 'text-indigo-300 bg-indigo-500/15 border border-indigo-500/30';
-
-          const row = document.createElement('div');
-          row.className = 'p-3.5 rounded-2xl bg-card border border-slate-800 space-y-2.5';
-          row.innerHTML = `
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0 flex-1">
-                <div class="text-[11px] font-bold text-indigo-400 truncate">${ep.show}</div>
-                <div class="text-sm font-bold text-white leading-snug">${ep.title}</div>
-              </div>
-              <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full shrink-0 ${statusStyle}">${statusLabel}</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <button type="button" class="play-ep-btn flex-1 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">
-                ▶ Play
-              </button>
-              <button type="button" class="queue-ep-btn flex-1 py-2 rounded-xl bg-cardAlt hover:bg-slate-700 text-slate-100 text-xs font-semibold border border-slate-700">
-                + Queue
-              </button>
-              <button type="button" class="save-ep-btn px-3 py-2 rounded-xl bg-cardAlt hover:bg-slate-700 text-xs font-semibold border border-slate-700 ${isSaved ? 'text-emerald-300' : 'text-slate-300'}">
-                ${isSaved ? '★ Saved' : '☆ Save'}
-              </button>
-            </div>
-          `;
-
-          row.querySelector('.play-ep-btn').onclick = () => {
-            selectEpisode(ep.id, true);
-            switchTab('player');
-          };
-          row.querySelector('.queue-ep-btn').onclick = () => addEpisodeToQueue(ep.id);
-          row.querySelector('.save-ep-btn').onclick = () => toggleSavedEpisode(ep.id);
-          episodesRoot.appendChild(row);
-        });
+      } catch (_) {
+        root.innerHTML = `<p class="text-xs text-rose-300 py-1">Could not reach Apple Podcasts directory right now.</p>`;
       }
     }
 
-    function switchTab(tabName) {
-      prefs.activeTab = tabName;
-      savePrefs();
-      ['player', 'library', 'queue', 'extras'].forEach(name => {
-        document.getElementById(`view-${name}`).classList.toggle('hidden', name !== tabName);
-      });
-      if (tabName === 'library') renderLibrary();
-      document.querySelectorAll('.nav-tab').forEach(btn => {
-        const isTarget = btn.dataset.tab === tabName;
-        btn.classList.toggle('text-indigo-400', isTarget);
-        btn.classList.toggle('border-indigo-400', isTarget);
-        btn.classList.toggle('text-slate-400', !isTarget);
-        btn.classList.toggle('border-transparent', !isTarget);
-      });
-    }
-
-    // =========================================================================
-    // 6. FEEDS, LOCAL AUDIO & OPML
-    // =========================================================================
-    async function subscribeToFeedUrl(rawUrl) {
-      const url = (rawUrl || '').trim();
+    async function subscribeToFeedUrl(rawUrl, fallbackShowTitle = '') {
+      let url = (rawUrl || '').trim();
       if (!url) return;
+
+      if (/podcasts\.apple\.com/i.test(url)) {
+        showToast('Resolving Apple Podcasts link to RSS...');
+        const resolved = await resolveApplePodcastUrl(url);
+        if (!resolved || !resolved.feedUrl) {
+          showToast('Could not extract RSS from that Apple Podcasts link');
+          return;
+        }
+        url = resolved.feedUrl;
+        if (!fallbackShowTitle && resolved.title) fallbackShowTitle = resolved.title;
+      }
+
       try {
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
         const data = await res.json();
         const xml = new DOMParser().parseFromString(data.contents, 'text/xml');
-        const show = xml.querySelector('channel > title')?.textContent || 'RSS Podcast';
-        const items = Array.from(xml.querySelectorAll('item')).slice(0, 3);
+        const show = xml.querySelector('channel > title')?.textContent || fallbackShowTitle || 'RSS Podcast';
+        const items = Array.from(xml.querySelectorAll('item')).slice(0, 5);
 
         ensureShowSubscription(show, '📡', url);
 
@@ -1087,7 +516,7 @@
         showToast(`Subscribed to ${show}`);
       } catch (_) {
         // Still record custom private feed subscription locally so user can retry or manage it
-        const fallbackName = new URL(url.startsWith('http') ? url : `https://${url}`).hostname;
+        const fallbackName = fallbackShowTitle || new URL(url.startsWith('http') ? url : `https://${url}`).hostname;
         ensureShowSubscription(fallbackName, '🔐', url);
         if (!prefs.customFeeds.includes(url)) prefs.customFeeds.push(url);
         savePrefs();
@@ -1095,6 +524,17 @@
         showToast('Saved feed subscription (offline/CORS fallback)');
       }
     }
+
+    document.getElementById('appleDirectorySearchBtn').addEventListener('click', () => {
+      searchApplePodcastsDirectory(document.getElementById('appleDirectorySearchInput').value);
+    });
+
+    document.getElementById('appleDirectorySearchInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        searchApplePodcastsDirectory(e.currentTarget.value);
+      }
+    });
 
     document.getElementById('addRssBtn').addEventListener('click', async () => {
       const input = document.getElementById('rssUrlInput');
