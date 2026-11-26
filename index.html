@@ -1697,25 +1697,178 @@
       });
     }
 
-    async function initApp() {
-      loadPrefsForKey(activeSyncKey);
-      runtime.episodes = buildDemoEpisodes();
-      runtime.queueIds = runtime.episodes.map(e => e.id);
-      runtime.currentEpisodeId = runtime.episodes[0]?.id || null;
+    function bindEventListeners() {
+      document.getElementById('tabPlayerBtn')?.addEventListener('click', () => switchTab('player'));
+      document.getElementById('tabQueueBtn')?.addEventListener('click', () => switchTab('queue'));
+      document.getElementById('tabLibraryBtn')?.addEventListener('click', () => switchTab('library'));
+      document.getElementById('tabExtrasBtn')?.addEventListener('click', () => switchTab('extras'));
 
-      syncControlsFromPrefs();
-      selectEpisode(runtime.currentEpisodeId, false);
-      renderLibrary();
-      renderQueue();
-      switchTab(prefs.activeTab || 'player');
+      document.getElementById('playPauseBtn')?.addEventListener('click', () => setPlaying(!runtime.isPlaying));
+      document.getElementById('carModePlayBtn')?.addEventListener('click', () => setPlaying(!runtime.isPlaying));
+      document.getElementById('rewind15Btn')?.addEventListener('click', () => seekTo(runtime.currentTime - 15));
+      document.getElementById('carRewindBtn')?.addEventListener('click', () => seekTo(runtime.currentTime - 15));
+      document.getElementById('forward30Btn')?.addEventListener('click', () => seekTo(runtime.currentTime + 30));
+      document.getElementById('carForwardBtn')?.addEventListener('click', () => seekTo(runtime.currentTime + 30));
 
-      await initFirebaseSync();
-      await pullCloudState(activeSyncKey);
-      for (const show of prefs.subscribedShows || []) {
-        if (show && show.name) {
-          await loadEpisodesForShow(show);
+      document.getElementById('carModeBtn')?.addEventListener('click', () => {
+        document.getElementById('carModeOverlay')?.classList.remove('hidden');
+      });
+      document.getElementById('exitCarModeBtn')?.addEventListener('click', () => {
+        document.getElementById('carModeOverlay')?.classList.add('hidden');
+      });
+
+      document.getElementById('scrubberTrack')?.addEventListener('click', (e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+        seekTo(ratio * (runtime.duration || 1800));
+      });
+
+      document.getElementById('speedRange')?.addEventListener('input', (e) => setSpeed(e.target.value));
+
+      document.getElementById('toggleAutoSkipAds')?.addEventListener('change', (e) => {
+        prefs.autoSkipAds = e.target.checked;
+        savePrefs();
+      });
+      document.getElementById('toggleSilenceTrim')?.addEventListener('change', (e) => {
+        prefs.silenceTrim = e.target.checked;
+        applyAudioSettings();
+        savePrefs();
+      });
+      document.getElementById('toggleVoiceBoost')?.addEventListener('change', (e) => {
+        prefs.voiceBoost = e.target.checked;
+        applyAudioSettings();
+        savePrefs();
+      });
+
+      document.getElementById('toastUndoBtn')?.addEventListener('click', () => {
+        if (runtime.lastSkippedAd) {
+          prefs.adSecondsSaved = Math.max(0, (prefs.adSecondsSaved || 0) - runtime.lastSkippedAd.skippedSec);
+          seekTo(runtime.lastSkippedAd.returnTime);
+          runtime.lastSkippedAd = null;
+          updateAdSavedPill();
+          savePrefs();
+          document.getElementById('toastBanner')?.classList.add('hidden');
         }
+      });
+
+      document.getElementById('clearQueueBtn')?.addEventListener('click', () => {
+        runtime.queueIds = [];
+        renderQueue();
+      });
+
+      document.getElementById('libraryFollowBtn')?.addEventListener('click', () => {
+        const input = document.getElementById('libraryFeedInput');
+        if (!input) return;
+        const val = input.value;
+        input.value = '';
+        subscribeToShowInput(val);
+      });
+
+      document.getElementById('libraryFeedInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          document.getElementById('libraryFollowBtn')?.click();
+        }
+      });
+
+      document.getElementById('librarySearchInput')?.addEventListener('input', (e) => {
+        prefs.librarySearch = e.target.value;
+        renderLibrary();
+      });
+
+      document.getElementById('filterAllBtn')?.addEventListener('click', () => {
+        prefs.libraryFilter = 'all';
+        renderLibrary();
+      });
+      document.getElementById('filterShowsBtn')?.addEventListener('click', () => {
+        prefs.libraryFilter = 'shows';
+        renderLibrary();
+      });
+      document.getElementById('filterSavedBtn')?.addEventListener('click', () => {
+        prefs.libraryFilter = 'saved';
+        renderLibrary();
+      });
+
+      document.getElementById('librarySortBtn')?.addEventListener('click', () => {
+        prefs.librarySortOrder = prefs.librarySortOrder === 'oldest' ? 'newest' : 'oldest';
+        savePrefs();
+        renderLibrary();
+      });
+
+      document.getElementById('toggleHideListenedBtn')?.addEventListener('click', () => {
+        prefs.hideListened = !prefs.hideListened;
+        savePrefs();
+        renderLibrary();
+      });
+
+      document.getElementById('copySyncKeyBtn')?.addEventListener('click', () => {
+        const baseUrl = `${window.location.origin}${window.location.pathname}`;
+        const shareUrl = `${baseUrl}?sync=${encodeURIComponent(activeSyncKey)}`;
+        try {
+          const tempInput = document.createElement('input');
+          tempInput.value = shareUrl;
+          document.body.appendChild(tempInput);
+          tempInput.select();
+          document.execCommand('copy');
+          document.body.removeChild(tempInput);
+          showToast('Sync link copied');
+        } catch (_) {
+          showToast(`Sync key: ${activeSyncKey}`);
+        }
+      });
+
+      document.getElementById('applySyncKeyBtn')?.addEventListener('click', async () => {
+        const input = document.getElementById('syncKeyInput');
+        if (!input) return;
+        const nextKey = input.value.trim();
+        if (!nextKey) return;
+        loadPrefsForKey(nextKey);
+        syncControlsFromPrefs();
+        renderLibrary();
+        renderQueue();
+        await pullCloudState(nextKey);
+        showToast('Switched sync profile');
+      });
+
+      document.getElementById('addBookmarkBtn')?.addEventListener('click', () => {
+        const ep = currentEpisode();
+        if (!ep) return;
+        const noteInput = document.getElementById('bookmarkNoteInput');
+        const note = noteInput ? noteInput.value.trim() : '';
+        if (!prefs.bookmarks[ep.id]) prefs.bookmarks[ep.id] = [];
+        prefs.bookmarks[ep.id].push({ time: Math.floor(runtime.currentTime), note });
+        if (noteInput) noteInput.value = '';
+        savePrefs();
+        renderExtras(ep);
+        showToast('Bookmark saved');
+      });
+    }
+
+    async function initApp() {
+      try {
+        loadPrefsForKey(activeSyncKey);
+        runtime.episodes = buildDemoEpisodes();
+        runtime.queueIds = runtime.episodes.map(e => e.id);
+        runtime.currentEpisodeId = runtime.episodes[0]?.id || null;
+
+        syncControlsFromPrefs();
+        selectEpisode(runtime.currentEpisodeId, false);
+        renderLibrary();
+        renderQueue();
+        switchTab(prefs.activeTab || 'player');
+      } finally {
+        bindEventListeners();
       }
+
+      try {
+        await initFirebaseSync();
+        await pullCloudState(activeSyncKey);
+        for (const show of prefs.subscribedShows || []) {
+          if (show && show.name) {
+            await loadEpisodesForShow(show);
+          }
+        }
+      } catch (_) {}
 
       setInterval(() => {
         if (activeSyncKey && !document.hidden) {
@@ -1726,152 +1879,11 @@
       requestAnimationFrame(tickPlayback);
     }
 
-    document.getElementById('tabPlayerBtn').addEventListener('click', () => switchTab('player'));
-    document.getElementById('tabQueueBtn').addEventListener('click', () => switchTab('queue'));
-    document.getElementById('tabLibraryBtn').addEventListener('click', () => switchTab('library'));
-    document.getElementById('tabExtrasBtn').addEventListener('click', () => switchTab('extras'));
-
-    document.getElementById('playPauseBtn').addEventListener('click', () => setPlaying(!runtime.isPlaying));
-    document.getElementById('carModePlayBtn').addEventListener('click', () => setPlaying(!runtime.isPlaying));
-    document.getElementById('rewind15Btn').addEventListener('click', () => seekTo(runtime.currentTime - 15));
-    document.getElementById('carRewindBtn').addEventListener('click', () => seekTo(runtime.currentTime - 15));
-    document.getElementById('forward30Btn').addEventListener('click', () => seekTo(runtime.currentTime + 30));
-    document.getElementById('carForwardBtn').addEventListener('click', () => seekTo(runtime.currentTime + 30));
-
-    document.getElementById('carModeBtn').addEventListener('click', () => {
-      document.getElementById('carModeOverlay').classList.remove('hidden');
-    });
-    document.getElementById('exitCarModeBtn').addEventListener('click', () => {
-      document.getElementById('carModeOverlay').classList.add('hidden');
-    });
-
-    document.getElementById('scrubberTrack').addEventListener('click', (e) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
-      seekTo(ratio * (runtime.duration || 1800));
-    });
-
-    document.getElementById('speedRange').addEventListener('input', (e) => setSpeed(e.target.value));
-
-    document.getElementById('toggleAutoSkipAds').addEventListener('change', (e) => {
-      prefs.autoSkipAds = e.target.checked;
-      savePrefs();
-    });
-    document.getElementById('toggleSilenceTrim').addEventListener('change', (e) => {
-      prefs.silenceTrim = e.target.checked;
-      applyAudioSettings();
-      savePrefs();
-    });
-    document.getElementById('toggleVoiceBoost').addEventListener('change', (e) => {
-      prefs.voiceBoost = e.target.checked;
-      applyAudioSettings();
-      savePrefs();
-    });
-
-    document.getElementById('toastUndoBtn').addEventListener('click', () => {
-      if (runtime.lastSkippedAd) {
-        prefs.adSecondsSaved = Math.max(0, (prefs.adSecondsSaved || 0) - runtime.lastSkippedAd.skippedSec);
-        seekTo(runtime.lastSkippedAd.returnTime);
-        runtime.lastSkippedAd = null;
-        updateAdSavedPill();
-        savePrefs();
-        document.getElementById('toastBanner').classList.add('hidden');
-      }
-    });
-
-    document.getElementById('clearQueueBtn').addEventListener('click', () => {
-      runtime.queueIds = [];
-      renderQueue();
-    });
-
-    document.getElementById('libraryFollowBtn').addEventListener('click', () => {
-      const input = document.getElementById('libraryFeedInput');
-      if (!input) return;
-      const val = input.value;
-      input.value = '';
-      subscribeToShowInput(val);
-    });
-
-    document.getElementById('libraryFeedInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        document.getElementById('libraryFollowBtn').click();
-      }
-    });
-
-    document.getElementById('librarySearchInput').addEventListener('input', (e) => {
-      prefs.librarySearch = e.target.value;
-      renderLibrary();
-    });
-
-    document.getElementById('filterAllBtn').addEventListener('click', () => {
-      prefs.libraryFilter = 'all';
-      renderLibrary();
-    });
-    document.getElementById('filterShowsBtn').addEventListener('click', () => {
-      prefs.libraryFilter = 'shows';
-      renderLibrary();
-    });
-    document.getElementById('filterSavedBtn').addEventListener('click', () => {
-      prefs.libraryFilter = 'saved';
-      renderLibrary();
-    });
-
-    document.getElementById('librarySortBtn').addEventListener('click', () => {
-      prefs.librarySortOrder = prefs.librarySortOrder === 'oldest' ? 'newest' : 'oldest';
-      savePrefs();
-      renderLibrary();
-    });
-
-    document.getElementById('toggleHideListenedBtn').addEventListener('click', () => {
-      prefs.hideListened = !prefs.hideListened;
-      savePrefs();
-      renderLibrary();
-    });
-
-    document.getElementById('copySyncKeyBtn').addEventListener('click', () => {
-      const baseUrl = `${window.location.origin}${window.location.pathname}`;
-      const shareUrl = `${baseUrl}?sync=${encodeURIComponent(activeSyncKey)}`;
-      try {
-        const tempInput = document.createElement('input');
-        tempInput.value = shareUrl;
-        document.body.appendChild(tempInput);
-        tempInput.select();
-        document.execCommand('copy');
-        document.body.removeChild(tempInput);
-        showToast('Sync link copied');
-      } catch (_) {
-        showToast(`Sync key: ${activeSyncKey}`);
-      }
-    });
-
-    document.getElementById('applySyncKeyBtn').addEventListener('click', async () => {
-      const input = document.getElementById('syncKeyInput');
-      if (!input) return;
-      const nextKey = input.value.trim();
-      if (!nextKey) return;
-      loadPrefsForKey(nextKey);
-      syncControlsFromPrefs();
-      renderLibrary();
-      renderQueue();
-      await pullCloudState(nextKey);
-      showToast('Switched sync profile');
-    });
-
-    document.getElementById('addBookmarkBtn').addEventListener('click', () => {
-      const ep = currentEpisode();
-      if (!ep) return;
-      const noteInput = document.getElementById('bookmarkNoteInput');
-      const note = noteInput ? noteInput.value.trim() : '';
-      if (!prefs.bookmarks[ep.id]) prefs.bookmarks[ep.id] = [];
-      prefs.bookmarks[ep.id].push({ time: Math.floor(runtime.currentTime), note });
-      if (noteInput) noteInput.value = '';
-      savePrefs();
-      renderExtras(ep);
-      showToast('Bookmark saved');
-    });
-
-    window.addEventListener('DOMContentLoaded', initApp);
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', initApp);
+    } else {
+      initApp();
+    }
   </script>
 </body>
 </html>
