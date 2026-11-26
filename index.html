@@ -434,6 +434,8 @@
       isPlaying: false,
       lastTime: 0,
       lastSkippedAdKey: '',
+      expandedShowName: null,
+      loadingShowName: null,
       audioCtx: null,
       sourceNode: null,
       compressorNode: null,
@@ -984,6 +986,47 @@
       renderLibrary();
     }
 
+    async function loadEpisodesForShow(show) {
+      if (!show || !show.feedUrl || runtime.loadingShowName === show.name) return;
+      runtime.loadingShowName = show.name;
+      renderLibrary();
+
+      try {
+        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(show.feedUrl)}`);
+        const data = await res.json();
+        const xml = new DOMParser().parseFromString(data.contents, 'text/xml');
+        const resolvedShowName = xml.querySelector('channel > title')?.textContent?.trim() || show.name;
+        const items = Array.from(xml.querySelectorAll('item')).slice(0, 12);
+
+        items.forEach((item, idx) => {
+          const enclosureUrl = item.querySelector('enclosure')?.getAttribute('url');
+          if (!enclosureUrl) return;
+          const epTitle = item.querySelector('title')?.textContent?.trim() || `Episode ${idx + 1}`;
+          const alreadyLoaded = runtime.episodes.some(
+            existing => existing.audioUrl === enclosureUrl || (existing.show === resolvedShowName && existing.title === epTitle)
+          );
+          if (alreadyLoaded) return;
+
+          runtime.episodes.push({
+            id: `rss-${show.name.replace(/\W+/g, '').toLowerCase()}-${idx}-${Date.now()}`,
+            show: resolvedShowName,
+            title: epTitle,
+            icon: show.icon || '📡',
+            duration: 1200,
+            audioUrl: enclosureUrl,
+            segments: [{ id: `s-${idx}`, start: 0, end: 1200, type: 'content', label: 'Main Content' }],
+            chapters: [{ start: 0, title: 'Start' }],
+            notes: (item.querySelector('description')?.textContent || '').replace(/<[^>]+>/g, '')
+          });
+        });
+      } catch (_) {
+        showToast(`Could not refresh episodes for ${show.name}`);
+      } finally {
+        runtime.loadingShowName = null;
+        renderLibrary();
+      }
+    }
+
     function renderLibrary() {
       const showsRoot = document.getElementById('libraryShowsRoot');
       const epsRoot = document.getElementById('libraryEpisodesRoot');
@@ -1019,18 +1062,26 @@
       } else {
         filteredShows.forEach(show => {
           const showEps = runtime.episodes.filter(e => e.show.toLowerCase() === show.name.toLowerCase());
+          const isExpanded = runtime.expandedShowName === show.name;
+          const isLoading = runtime.loadingShowName === show.name;
+
           const card = document.createElement('div');
-          card.className = 'p-3.5 rounded-2xl bg-card border border-slate-800 flex items-center justify-between gap-3';
-          card.innerHTML = `
-            <div class="flex items-center gap-3 min-w-0 flex-1">
+          card.className = `p-3.5 rounded-2xl bg-card border space-y-3 ${isExpanded ? 'border-indigo-500/60' : 'border-slate-800'}`;
+
+          const headerRow = document.createElement('div');
+          headerRow.className = 'flex items-center justify-between gap-3';
+          headerRow.innerHTML = `
+            <button type="button" class="show-expand-btn flex items-center gap-3 min-w-0 flex-1 text-left">
               <div class="w-11 h-11 rounded-xl bg-cardAlt border border-slate-700 flex items-center justify-center text-xl shrink-0">
                 ${show.icon || '🎙️'}
               </div>
               <div class="min-w-0">
                 <div class="text-sm font-bold text-white truncate">${show.name}</div>
-                <div class="text-xs text-slate-400 truncate">${showEps.length} ${showEps.length === 1 ? 'episode' : 'episodes'} available</div>
+                <div class="text-xs text-slate-400 truncate">
+                  ${isLoading ? 'Loading episodes...' : `${showEps.length} ${showEps.length === 1 ? 'episode' : 'episodes'} • Tap to ${isExpanded ? 'hide' : 'view'}`}
+                </div>
               </div>
-            </div>
+            </button>
             <div class="flex items-center gap-1.5 shrink-0">
               <button type="button" class="play-show-btn px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white">
                 Play
@@ -1040,20 +1091,97 @@
               </button>
             </div>
           `;
-          card.querySelector('.play-show-btn').onclick = () => {
+
+          headerRow.querySelector('.show-expand-btn').onclick = async () => {
+            if (isExpanded) {
+              runtime.expandedShowName = null;
+              renderLibrary();
+              return;
+            }
+            runtime.expandedShowName = show.name;
+            renderLibrary();
+            if (!showEps.length && show.feedUrl) {
+              await loadEpisodesForShow(show);
+            }
+          };
+
+          headerRow.querySelector('.play-show-btn').onclick = async () => {
             if (showEps.length) {
               selectEpisode(showEps[0].id, true);
               switchTab('player');
+            } else if (show.feedUrl) {
+              runtime.expandedShowName = show.name;
+              await loadEpisodesForShow(show);
+              const refreshed = runtime.episodes.filter(e => e.show.toLowerCase() === show.name.toLowerCase());
+              if (refreshed.length) {
+                selectEpisode(refreshed[0].id, true);
+                switchTab('player');
+              } else {
+                showToast(`No episodes available for ${show.name}`);
+              }
             } else {
               showToast(`No episodes loaded yet for ${show.name}`);
             }
           };
-          card.querySelector('.unfollow-btn').onclick = () => {
+
+          headerRow.querySelector('.unfollow-btn').onclick = () => {
+            if (runtime.expandedShowName === show.name) runtime.expandedShowName = null;
             prefs.subscribedShows = prefs.subscribedShows.filter(item => item.name !== show.name);
             savePrefs();
             renderLibrary();
             showToast(`Unfollowed ${show.name}`);
           };
+
+          card.appendChild(headerRow);
+
+          if (isExpanded) {
+            const epListWrap = document.createElement('div');
+            epListWrap.className = 'pt-2.5 border-t border-slate-800 space-y-2';
+
+            if (isLoading) {
+              epListWrap.innerHTML = `<p class="text-xs text-slate-400 py-1">Fetching episodes from feed...</p>`;
+            } else if (!showEps.length) {
+              epListWrap.innerHTML = `<p class="text-xs text-slate-500 py-1">No episodes available for ${show.name} yet.</p>`;
+            } else {
+              showEps.forEach(ep => {
+                const isSaved = prefs.savedEpisodeIds.includes(ep.id);
+                const isPlayed = prefs.playedEpisodeIds.includes(ep.id);
+                const epRow = document.createElement('div');
+                epRow.className = 'p-2.5 rounded-xl bg-surface border border-slate-800/90 flex items-center justify-between gap-2';
+                epRow.innerHTML = `
+                  <button type="button" class="ep-row-play text-left min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs font-bold text-white truncate">${ep.title}</span>
+                      ${isPlayed ? '<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 shrink-0">Played</span>' : ''}
+                    </div>
+                    <div class="font-mono text-[11px] text-slate-400 mt-0.5">${formatClock(ep.duration)}</div>
+                  </button>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <button type="button" class="ep-row-save px-2 py-1.5 rounded-lg text-[11px] font-bold border ${isSaved ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-card text-slate-300 border-slate-700'}">
+                      ${isSaved ? '★' : '☆'}
+                    </button>
+                    <button type="button" class="ep-row-queue px-2 py-1.5 rounded-lg bg-card hover:bg-cardAlt border border-slate-700 text-[11px] font-bold text-slate-200">
+                      +Q
+                    </button>
+                  </div>
+                `;
+                epRow.querySelector('.ep-row-play').onclick = () => {
+                  selectEpisode(ep.id, true);
+                  switchTab('player');
+                };
+                epRow.querySelector('.ep-row-save').onclick = () => toggleSavedEpisode(ep.id);
+                epRow.querySelector('.ep-row-queue').onclick = () => {
+                  if (!runtime.queueIds.includes(ep.id)) runtime.queueIds.push(ep.id);
+                  renderQueue();
+                  showToast('Added to Up Next queue');
+                };
+                epListWrap.appendChild(epRow);
+              });
+            }
+
+            card.appendChild(epListWrap);
+          }
+
           showsRoot.appendChild(card);
         });
       }
