@@ -4,1883 +4,1331 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CastFlow Pro</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script>
     tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace']
-          },
-          colors: {
-            canvas: '#090d16',
-            card: '#111827',
-            cardAlt: '#1e293b',
-            surface: '#0f172a'
+            sans: ['Inter', 'system-ui', 'sans-serif']
           }
         }
       }
     };
   </script>
   <style>
-    * {
-      box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-    }
     body {
-      margin: 0;
-      background-color: #090d16;
-      color: #f8fafc;
       font-family: 'Inter', system-ui, sans-serif;
-      overflow-x: hidden;
+      background-color: #090d16;
+      color: #f1f5f9;
     }
-    .ad-marker {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      background: repeating-linear-gradient(
-        45deg,
-        rgba(245, 158, 11, 0.55),
-        rgba(245, 158, 11, 0.55) 4px,
-        rgba(217, 119, 6, 0.25) 4px,
-        rgba(217, 119, 6, 0.25) 8px
-      );
-      pointer-events: none;
+    /* Custom subtle scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
     }
-    .toggle-checkbox:checked + .toggle-track {
-      background-color: #4f46e5;
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.5);
     }
-    .toggle-checkbox:checked + .toggle-track .toggle-thumb {
-      transform: translateX(18px);
+    ::-webkit-scrollbar-thumb {
+      background: rgba(71, 85, 105, 0.7);
+      border-radius: 9999px;
     }
   </style>
 </head>
-<body class="min-h-screen bg-canvas text-slate-100">
-  <!-- Main Mobile Container -->
-  <div class="w-full max-w-md mx-auto min-h-screen flex flex-col justify-between px-4 pt-4 pb-24">
-    <div>
-      <!-- Top Header -->
-      <header class="flex items-center justify-between gap-2 pb-4 border-b border-slate-800/80">
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2 flex-wrap">
-            <h1 class="text-lg font-extrabold tracking-tight text-white">CastFlow Pro</h1>
-            <span id="adSavedPill" class="font-mono text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+<body class="min-h-screen bg-[#090d16] text-slate-100 antialiased selection:bg-indigo-500/30 selection:text-indigo-200">
+  <!-- App Shell -->
+  <div class="mx-auto flex min-h-screen max-w-2xl flex-col pb-24">
+    <!-- Top Header -->
+    <header class="sticky top-0 z-30 border-b border-slate-800/80 bg-[#090d16]/95 px-4 py-3.5 backdrop-blur">
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <h1 class="text-lg font-bold tracking-tight text-white">CastFlow Pro</h1>
+            <span class="rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-300">
               0s ads skipped
             </span>
-            <span id="syncStatusPill" class="font-mono text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-              Synced
+            <span id="syncStatusPill" class="rounded-full border border-slate-600/50 bg-slate-700/60 px-2.5 py-0.5 text-xs font-medium text-slate-300">
+              Local Only
             </span>
           </div>
-          <p id="headerShowLabel" class="text-xs text-slate-400 truncate mt-0.5">Tech Frontier Weekly</p>
+          <p id="headerSubtitle" class="mt-0.5 truncate text-xs text-slate-400">
+            Tech Frontier Weekly
+          </p>
         </div>
-        <button id="carModeBtn" type="button" class="px-3 py-2 rounded-xl bg-card hover:bg-cardAlt border border-slate-800 text-xs font-bold text-indigo-300 shrink-0">
+
+        <button
+          id="driveModeBtn"
+          type="button"
+          class="shrink-0 rounded-2xl border border-slate-700/80 bg-slate-800/80 px-3.5 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700 active:scale-95"
+        >
           🚗 Drive
         </button>
-      </header>
-
-      <!-- Toast Notification -->
-      <div id="toastBanner" class="hidden mt-3 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl bg-indigo-950/90 border border-indigo-500/40 text-xs text-white shadow-lg">
-        <span id="toastMessage" class="truncate flex-1 font-medium"></span>
-        <button id="toastUndoBtn" type="button" class="hidden px-2.5 py-1 rounded-lg bg-amber-400 text-slate-950 font-bold text-[11px] shrink-0">
-          Undo Ad
-        </button>
       </div>
+    </header>
 
-      <!-- VIEW 1: PLAYER -->
-      <main id="viewPlayer" class="mt-4 space-y-4">
-        <section class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-4">
-          <div class="flex items-center gap-3.5">
-            <div id="epArtwork" class="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-600/30 to-purple-600/20 border border-indigo-500/30 flex items-center justify-center text-3xl shrink-0">
-              🎧
-            </div>
-            <div class="min-w-0 flex-1">
-              <p id="epTitle" class="text-sm font-bold text-white leading-snug line-clamp-2">Loading episode...</p>
-              <p id="epShowMeta" class="text-xs text-slate-400 truncate mt-1">Show • 30 min</p>
-            </div>
+    <!-- Toast / Notice Banner (replaces alert()) -->
+    <div id="toastBanner" class="mx-4 mt-3 hidden rounded-2xl border border-indigo-500/30 bg-indigo-500/15 px-4 py-2.5 text-xs font-medium text-indigo-200">
+    </div>
+
+    <!-- Main Views Container -->
+    <main class="flex-1 space-y-4 px-4 pt-4">
+      <!-- PLAYER VIEW -->
+      <section id="view-player" class="hidden space-y-4">
+        <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-xl">
+          <div class="flex flex-col items-center text-center">
+            <img
+              id="playerArtwork"
+              src="https://placehold.co/320x320/1e1b4b/c7d2fe?text=CastFlow"
+              onerror="this.src='https://placehold.co/320x320/1e1b4b/c7d2fe?text=CastFlow'"
+              alt="Episode artwork"
+              class="h-48 w-48 rounded-3xl border border-slate-700/70 object-cover shadow-lg sm:h-56 sm:w-56"
+            />
+            <p id="playerShowTitle" class="mt-4 text-xs font-semibold uppercase tracking-wider text-indigo-400">
+              Select an Episode
+            </p>
+            <h2 id="playerEpisodeTitle" class="mt-1 text-lg font-bold text-white">
+              No Episode Loaded
+            </h2>
+            <p id="playerEpisodeMeta" class="mt-1 text-xs text-slate-400">
+              Pick an episode from Library or Queue to start listening
+            </p>
           </div>
 
-          <!-- Scrubber with Ad Markers -->
-          <div class="space-y-1.5">
-            <div id="scrubberTrack" class="relative h-3.5 rounded-full bg-surface border border-slate-800 overflow-hidden cursor-pointer">
-              <div id="adMarkersLayer" class="absolute inset-0"></div>
-              <div id="progressFill" class="relative h-full w-0 bg-indigo-500 rounded-full transition-[width] duration-75"></div>
-            </div>
-            <div class="flex items-center justify-between font-mono text-[11px] text-slate-400">
+          <!-- Audio Element -->
+          <audio id="audioEngine" preload="metadata" class="hidden"></audio>
+
+          <!-- Scrubber -->
+          <div class="mt-5">
+            <input
+              id="progressSlider"
+              type="range"
+              min="0"
+              max="100"
+              value="0"
+              step="1"
+              class="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-800 accent-indigo-500"
+            />
+            <div class="mt-1.5 flex justify-between text-xs tabular-nums text-slate-400">
               <span id="currentTimeLabel">0:00</span>
-              <span id="durationLabel">30:00</span>
+              <span id="durationLabel">0:00</span>
             </div>
           </div>
 
-          <!-- Main Transport Controls -->
-          <div class="flex items-center justify-center gap-4 pt-1">
-            <button id="rewind15Btn" type="button" class="px-4 py-3 rounded-2xl bg-surface hover:bg-cardAlt border border-slate-800 text-xs font-bold text-slate-200 active:scale-95 transition">
+          <!-- Transport Controls -->
+          <div class="mt-5 flex items-center justify-center gap-4">
+            <button
+              id="skipBackBtn"
+              type="button"
+              class="rounded-2xl border border-slate-700 bg-slate-800/90 px-4 py-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 active:scale-95"
+            >
               -15s
             </button>
-            <button id="playPauseBtn" type="button" class="w-16 h-16 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xl font-bold shadow-lg shadow-indigo-600/30 flex items-center justify-center active:scale-95 transition">
-              ▶
+            <button
+              id="playPauseBtn"
+              type="button"
+              class="rounded-2xl bg-indigo-600 px-7 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/25 transition hover:bg-indigo-500 active:scale-95"
+            >
+              Play
             </button>
-            <button id="forward30Btn" type="button" class="px-4 py-3 rounded-2xl bg-surface hover:bg-cardAlt border border-slate-800 text-xs font-bold text-slate-200 active:scale-95 transition">
+            <button
+              id="skipForwardBtn"
+              type="button"
+              class="rounded-2xl border border-slate-700 bg-slate-800/90 px-4 py-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 active:scale-95"
+            >
               +30s
             </button>
           </div>
-        </section>
 
-        <!-- Speed & Smart Audio Toggles -->
-        <section class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-3.5">
-          <div class="flex items-center justify-between">
-            <label for="speedRange" class="text-xs font-bold text-slate-200">Playback Speed</label>
-            <span id="speedValueLabel" class="font-mono text-xs font-bold text-indigo-300">1.00x</span>
+          <!-- Speed & Quick Actions -->
+          <div class="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-4 text-xs">
+            <div class="flex items-center gap-1.5">
+              <span class="text-slate-400">Speed:</span>
+              <button type="button" data-speed="1" class="speed-btn rounded-xl bg-indigo-600 px-2.5 py-1 font-semibold text-white">1x</button>
+              <button type="button" data-speed="1.25" class="speed-btn rounded-xl bg-slate-800 px-2.5 py-1 font-semibold text-slate-300 hover:bg-slate-700">1.25x</button>
+              <button type="button" data-speed="1.5" class="speed-btn rounded-xl bg-slate-800 px-2.5 py-1 font-semibold text-slate-300 hover:bg-slate-700">1.5x</button>
+              <button type="button" data-speed="2" class="speed-btn rounded-xl bg-slate-800 px-2.5 py-1 font-semibold text-slate-300 hover:bg-slate-700">2x</button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                id="playerMarkListenedBtn"
+                type="button"
+                class="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 font-medium text-slate-200 hover:bg-slate-700"
+              >
+                Mark Listened
+              </button>
+              <button
+                id="playerSaveBtn"
+                type="button"
+                class="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 font-medium text-slate-200 hover:bg-slate-700"
+              >
+                ★ Save
+              </button>
+            </div>
           </div>
-          <input id="speedRange" type="range" min="0.5" max="2.0" step="0.05" value="1.0" class="w-full accent-indigo-500 cursor-pointer" />
-
-          <div class="pt-2 border-t border-slate-800/80 space-y-3">
-            <label class="flex items-center justify-between gap-3 cursor-pointer">
-              <div>
-                <p class="text-xs font-bold text-white">Auto-Skip Commercials</p>
-                <p class="text-[11px] text-slate-400">Automatically jump past detected ad breaks</p>
-              </div>
-              <span class="relative inline-flex items-center shrink-0">
-                <input id="toggleAutoSkipAds" type="checkbox" class="sr-only toggle-checkbox" checked />
-                <span class="toggle-track w-10 h-6 bg-slate-700 rounded-full transition-colors relative">
-                  <span class="toggle-thumb w-4 h-4 bg-white rounded-full absolute top-1 left-1 transition-transform"></span>
-                </span>
-              </span>
-            </label>
-
-            <label class="flex items-center justify-between gap-3 cursor-pointer">
-              <div>
-                <p class="text-xs font-bold text-white">Silence Trim / Leveler</p>
-                <p class="text-[11px] text-slate-400">Smooth volume dynamics for noisy environments</p>
-              </div>
-              <span class="relative inline-flex items-center shrink-0">
-                <input id="toggleSilenceTrim" type="checkbox" class="sr-only toggle-checkbox" />
-                <span class="toggle-track w-10 h-6 bg-slate-700 rounded-full transition-colors relative">
-                  <span class="toggle-thumb w-4 h-4 bg-white rounded-full absolute top-1 left-1 transition-transform"></span>
-                </span>
-              </span>
-            </label>
-
-            <label class="flex items-center justify-between gap-3 cursor-pointer">
-              <div>
-                <p class="text-xs font-bold text-white">Voice Boost</p>
-                <p class="text-[11px] text-slate-400">Enhance vocal clarity on spoken-word shows</p>
-              </div>
-              <span class="relative inline-flex items-center shrink-0">
-                <input id="toggleVoiceBoost" type="checkbox" class="sr-only toggle-checkbox" />
-                <span class="toggle-track w-10 h-6 bg-slate-700 rounded-full transition-colors relative">
-                  <span class="toggle-thumb w-4 h-4 bg-white rounded-full absolute top-1 left-1 transition-transform"></span>
-                </span>
-              </span>
-            </label>
-          </div>
-        </section>
-      </main>
-
-      <!-- VIEW 2: QUEUE -->
-      <section id="viewQueue" class="hidden mt-4 space-y-3">
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-extrabold text-white">Up Next Queue</h2>
-            <button id="clearQueueBtn" type="button" class="text-xs text-slate-400 hover:text-rose-400 font-semibold">
-              Clear
-            </button>
-          </div>
-          <div id="queueList" class="space-y-2"></div>
         </div>
       </section>
 
-      <!-- VIEW 3: LIBRARY -->
-      <section id="viewLibrary" class="hidden mt-4 space-y-3">
-        <!-- Follow Show / Apple Link / RSS -->
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-2.5">
-          <label for="libraryFeedInput" class="block text-xs font-extrabold text-white">
+      <!-- QUEUE VIEW -->
+      <section id="view-queue" class="hidden space-y-4">
+        <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-white">Up Next Queue</h2>
+            <span id="queueCountLabel" class="text-xs text-slate-400">0 episodes</span>
+          </div>
+          <div id="queueList" class="mt-3 space-y-2.5"></div>
+        </div>
+      </section>
+
+      <!-- LIBRARY VIEW -->
+      <section id="view-library" class="space-y-4">
+        <!-- Add Podcast Card -->
+        <div class="rounded-3xl border border-slate-800/90 bg-slate-900/80 p-4 shadow-sm">
+          <label for="addPodcastInput" class="block text-sm font-semibold text-white">
             Add Podcast (Name, Apple Link, or RSS)
           </label>
-          <div class="flex items-center gap-2">
+          <div class="mt-2.5 flex flex-col gap-2.5 sm:flex-row">
             <input
-              id="libraryFeedInput"
+              id="addPodcastInput"
               type="text"
               placeholder="e.g. Your Own Backyard or Apple/RSS URL"
-              class="flex-1 min-w-0 px-3 py-2.5 rounded-xl bg-surface border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              class="w-full rounded-2xl border border-slate-700/80 bg-slate-950/80 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
             />
-            <button id="libraryFollowBtn" type="button" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shrink-0">
+            <button
+              id="followPodcastBtn"
+              type="button"
+              class="shrink-0 rounded-2xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 active:scale-95"
+            >
               Follow
             </button>
           </div>
+          <div id="searchResultsBox" class="mt-3 hidden space-y-2 border-t border-slate-800 pt-3"></div>
         </div>
 
-        <!-- Search, Filter, Sort & Hide Listened -->
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-2.5">
+        <!-- Search & Filter Controls Card -->
+        <div class="rounded-3xl border border-slate-800/90 bg-slate-900/80 p-4 space-y-3">
           <input
             id="librarySearchInput"
             type="text"
             placeholder="Search shows or episodes..."
-            class="w-full px-3 py-2.5 rounded-xl bg-surface border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            class="w-full rounded-2xl border border-slate-700/80 bg-slate-950/80 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
           />
-          <div class="flex items-center gap-1.5">
-            <button id="filterAllBtn" type="button" class="flex-1 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white">All</button>
-            <button id="filterShowsBtn" type="button" class="flex-1 py-2 rounded-xl text-xs font-bold bg-surface text-slate-400">Shows</button>
-            <button id="filterSavedBtn" type="button" class="flex-1 py-2 rounded-xl text-xs font-bold bg-surface text-slate-400">Saved Eps</button>
-          </div>
-          <div class="flex items-center gap-2 pt-1">
-            <button id="librarySortBtn" type="button" class="flex-1 py-2 px-3 rounded-xl bg-surface hover:bg-cardAlt border border-slate-800 text-xs font-bold text-indigo-300 text-left">
-              ↕️ Newest First
+
+          <div class="grid grid-cols-3 gap-2">
+            <button
+              id="filterAllBtn"
+              type="button"
+              class="rounded-2xl bg-indigo-600 py-2 text-xs font-semibold text-white transition"
+            >
+              All
             </button>
-            <button id="toggleHideListenedBtn" type="button" class="flex-1 py-2 px-3 rounded-xl bg-surface hover:bg-cardAlt border border-slate-800 text-xs font-bold text-slate-300 text-left">
-              👁️ Hide Listened: OFF
+            <button
+              id="filterShowsBtn"
+              type="button"
+              class="rounded-2xl bg-slate-800/90 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-700"
+            >
+              Shows
+            </button>
+            <button
+              id="filterSavedBtn"
+              type="button"
+              class="rounded-2xl bg-slate-800/90 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-700"
+            >
+              Saved Eps
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              id="toggleSortOrderBtn"
+              type="button"
+              class="rounded-2xl border border-slate-700/80 bg-slate-800/80 px-3 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+            >
+              ⇅ Oldest First
+            </button>
+            <button
+              id="toggleHideListenedBtn"
+              type="button"
+              class="rounded-2xl border border-slate-700/80 bg-slate-800/80 px-3 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+            >
+              👁 Hide Listened: OFF
             </button>
           </div>
         </div>
 
-        <!-- Subscribed Shows -->
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-2.5">
+        <!-- Subscribed Shows Card -->
+        <div class="rounded-3xl border border-slate-800/90 bg-slate-900/80 p-4">
           <div class="flex items-center justify-between">
-            <h2 class="text-sm font-extrabold text-white">Subscribed Shows</h2>
-            <span id="subscribedShowsCount" class="font-mono text-xs text-slate-400">0 shows</span>
+            <h2 class="text-sm font-semibold text-white">Subscribed Shows</h2>
+            <span id="subscribedCountLabel" class="text-xs text-slate-400">0 shows</span>
           </div>
-          <div id="subscribedShowsList" class="space-y-2"></div>
+          <div id="subscribedShowsList" class="mt-3 space-y-2"></div>
         </div>
 
-        <!-- Episodes List -->
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-2.5">
-          <h2 class="text-sm font-extrabold text-white">Episodes</h2>
-          <div id="libraryEpisodesList" class="space-y-2"></div>
-        </div>
-
-        <!-- Cross-Device Sync Key -->
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-2">
+        <!-- Episodes Card -->
+        <div class="rounded-3xl border border-slate-800/90 bg-slate-900/80 p-4">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-extrabold text-white">Cross-Device Sync Key</span>
-            <button id="copySyncKeyBtn" type="button" class="px-2.5 py-1 rounded-lg bg-surface hover:bg-cardAlt border border-slate-700 text-[11px] font-bold text-indigo-300">
+            <h2 class="text-sm font-semibold text-white">Episodes</h2>
+            <span id="episodesCountLabel" class="text-xs text-slate-400">0 episodes</span>
+          </div>
+          <div id="episodesList" class="mt-3 space-y-2.5"></div>
+        </div>
+
+        <!-- Cross-Device Sync Key Card -->
+        <div class="rounded-3xl border border-slate-800/90 bg-slate-900/80 p-4">
+          <div class="flex items-center justify-between gap-2">
+            <label for="syncKeyInput" class="text-sm font-semibold text-white">
+              Cross-Device Sync Key
+            </label>
+            <button
+              id="copySyncLinkBtn"
+              type="button"
+              class="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+            >
               Copy Link
             </button>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="mt-2.5 flex gap-2">
             <input
               id="syncKeyInput"
               type="text"
-              placeholder="Sync key"
-              class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-surface border border-slate-700 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+              value="cf-fafi9-fza42"
+              class="w-full rounded-2xl border border-slate-700/80 bg-slate-950/80 px-3.5 py-2.5 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none"
             />
-            <button id="applySyncKeyBtn" type="button" class="px-3 py-2 rounded-xl bg-cardAlt hover:bg-slate-700 text-xs font-bold text-white shrink-0">
+            <button
+              id="syncNowBtn"
+              type="button"
+              class="shrink-0 rounded-2xl bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 active:scale-95"
+            >
               Sync
             </button>
           </div>
+          <p id="syncCopyStatus" class="mt-1.5 min-h-[1rem] text-xs text-emerald-400"></p>
         </div>
       </section>
 
-      <!-- VIEW 4: CHAPTERS & NOTES -->
-      <section id="viewExtras" class="hidden mt-4 space-y-3">
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-2.5">
-          <h2 class="text-sm font-extrabold text-white">Chapters</h2>
-          <div id="chaptersList" class="space-y-2"></div>
-        </div>
-
-        <div class="p-4 rounded-2xl bg-card border border-slate-800/90 space-y-2.5">
-          <h2 class="text-sm font-extrabold text-white">Bookmarks & Notes</h2>
-          <div class="flex items-center gap-2">
+      <!-- NOTES & CHAPTERS VIEW -->
+      <section id="view-notes" class="hidden space-y-4">
+        <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
+          <h2 class="text-sm font-semibold text-white">Episode Notes & Bookmarks</h2>
+          <p class="mt-1 text-xs text-slate-400">Jot down timestamps or takeaways while listening.</p>
+          <div class="mt-3 flex gap-2">
             <input
-              id="bookmarkNoteInput"
+              id="newNoteInput"
               type="text"
-              placeholder="Note at current timestamp..."
-              class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-surface border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              placeholder="Add a note or timestamp..."
+              class="w-full rounded-2xl border border-slate-700/80 bg-slate-950/80 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
             />
-            <button id="addBookmarkBtn" type="button" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shrink-0">
-              + Pin
+            <button
+              id="addNoteBtn"
+              type="button"
+              class="shrink-0 rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              Save
             </button>
           </div>
-          <div id="bookmarksList" class="space-y-2 pt-1"></div>
+          <div id="notesList" class="mt-4 space-y-2"></div>
         </div>
       </section>
-    </div>
+    </main>
 
     <!-- Bottom Navigation Bar -->
-    <nav class="fixed bottom-0 left-0 right-0 z-30 bg-card/95 backdrop-blur border-t border-slate-800">
-      <div class="max-w-md mx-auto grid grid-cols-4 gap-1 px-2 py-2">
-        <button id="tabPlayerBtn" type="button" class="flex flex-col items-center justify-center py-2 rounded-xl bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold">
-          <span>🎧</span>
-          <span class="mt-0.5 text-[11px]">Player</span>
+    <nav class="fixed bottom-0 inset-x-0 z-30 border-t border-slate-800/90 bg-[#090d16]/95 px-2 py-2 backdrop-blur">
+      <div class="mx-auto grid max-w-2xl grid-cols-4 gap-1">
+        <button
+          id="nav-player"
+          type="button"
+          class="flex flex-col items-center justify-center rounded-2xl py-2 text-xs font-semibold text-slate-400 transition hover:text-slate-200"
+        >
+          <span class="text-base leading-none">🎧</span>
+          <span class="mt-1">Player</span>
         </button>
-        <button id="tabQueueBtn" type="button" class="flex flex-col items-center justify-center py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold">
-          <span>📋</span>
-          <span class="mt-0.5 text-[11px]">Queue</span>
+        <button
+          id="nav-queue"
+          type="button"
+          class="flex flex-col items-center justify-center rounded-2xl py-2 text-xs font-semibold text-slate-400 transition hover:text-slate-200"
+        >
+          <span class="text-base leading-none">📋</span>
+          <span class="mt-1">Queue</span>
         </button>
-        <button id="tabLibraryBtn" type="button" class="flex flex-col items-center justify-center py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold">
-          <span>📚</span>
-          <span class="mt-0.5 text-[11px]">Library</span>
+        <button
+          id="nav-library"
+          type="button"
+          class="flex flex-col items-center justify-center rounded-2xl bg-indigo-500/15 py-2 text-xs font-semibold text-indigo-400 transition"
+        >
+          <span class="text-base leading-none">📚</span>
+          <span class="mt-1">Library</span>
         </button>
-        <button id="tabExtrasBtn" type="button" class="flex flex-col items-center justify-center py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold">
-          <span>🔖</span>
-          <span class="mt-0.5 text-[11px]">Notes</span>
+        <button
+          id="nav-notes"
+          type="button"
+          class="flex flex-col items-center justify-center rounded-2xl py-2 text-xs font-semibold text-slate-400 transition hover:text-slate-200"
+        >
+          <span class="text-base leading-none">🏷️</span>
+          <span class="mt-1">Notes</span>
         </button>
       </div>
     </nav>
   </div>
 
-  <!-- Drive / Car Mode Overlay -->
-  <div id="carModeOverlay" class="hidden fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-between p-6 text-center">
-    <div class="w-full max-w-md flex items-center justify-between">
-      <span class="font-mono text-xs uppercase tracking-wider text-indigo-400">Drive Mode</span>
-      <button id="exitCarModeBtn" type="button" class="px-4 py-2 rounded-xl bg-card border border-slate-800 text-xs font-bold text-white">
-        Exit
-      </button>
-    </div>
+  <script>
+    const STORAGE_KEY = 'castflow_pro_state_v1';
+    const DEFAULT_SYNC_KEY = 'cf-fafi9-fza42';
 
-    <div class="w-full max-w-md space-y-2 my-auto">
-      <p id="carModeShow" class="text-xs font-semibold text-indigo-300 uppercase tracking-wide">Show</p>
-      <h2 id="carModeTitle" class="text-xl font-extrabold text-white leading-snug">Episode Title</h2>
-    </div>
-
-    <div class="w-full max-w-md flex items-center justify-center gap-5 pb-6">
-      <button id="carRewindBtn" type="button" class="px-5 py-4 rounded-2xl bg-card border border-slate-800 text-sm font-extrabold text-white active:scale-95">
-        -15s
-      </button>
-      <button id="carModePlayBtn" type="button" class="w-24 h-24 rounded-full bg-indigo-600 text-white text-3xl font-bold shadow-xl active:scale-95">
-        ▶
-      </button>
-      <button id="carForwardBtn" type="button" class="px-5 py-4 rounded-2xl bg-card border border-slate-800 text-sm font-extrabold text-white active:scale-95">
-        +30s
-      </button>
-    </div>
-  </div>
-
-  <audio id="audioElement" preload="metadata"></audio>
-
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'castflow-pro-app';
-    const rawFirebaseConfig = typeof __firebase_config !== 'undefined' ? __firebase_config : '';
-    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
-
-    let db = null;
-    let auth = null;
-    let currentUser = null;
-    let unsubscribeCloudDoc = null;
-    let isApplyingRemoteState = false;
-
-    async function initFirebaseSync() {
-      try {
-        if (!rawFirebaseConfig) {
-          updateSyncStatusUI('Local Only');
-          return null;
-        }
-        const firebaseConfig = JSON.parse(rawFirebaseConfig);
-        const app = initializeApp(firebaseConfig);
-        auth = getAuth(app);
-        db = getFirestore(app);
-
-        if (initialAuthToken) {
-          const cred = await signInWithCustomToken(auth, initialAuthToken);
-          currentUser = cred.user;
-        } else {
-          const cred = await signInAnonymously(auth);
-          currentUser = cred.user;
-        }
-        updateSyncStatusUI('Synced');
-        return currentUser;
-      } catch (_) {
-        updateSyncStatusUI('Local Only');
-        return null;
+    // Sample catalog so the UI is immediately rich and interactive
+    const SAMPLE_SHOWS = [
+      {
+        id: 'show-tech-frontier',
+        title: 'Tech Frontier Weekly',
+        author: 'CastFlow Studios',
+        artwork: 'https://placehold.co/200x200/312e81/e0e7ff?text=TFW',
+        feedUrl: ''
+      },
+      {
+        id: 'show-midnight-mystery',
+        title: 'Midnight Mystery Files',
+        author: 'Nightfall Audio',
+        artwork: 'https://placehold.co/200x200/0f172a/93c5fd?text=MMF',
+        feedUrl: ''
       }
-    }
+    ];
 
-    function getSyncDocRef(key) {
-      if (!db || !key) return null;
-      const safeKey = String(key).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-      return doc(db, 'artifacts', appId, 'public', 'data', 'castflow_sync_profiles', safeKey);
-    }
-
-    const audioEl = document.getElementById('audioElement');
-    const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
-    const KEYVALUE_API = 'https://keyvalue.immanuel.co/api/KeyVal';
-    const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
-    const KVDB_API = 'https://kvdb.io';
-    const TEXTDB_API = 'https://textdb.dev/api';
-
-    function generateSyncKey() {
-      const rand = Math.random().toString(36).slice(2, 7);
-      const rand2 = Math.random().toString(36).slice(2, 7);
-      return `cf-${rand}-${rand2}`;
-    }
-
-    function parseSyncKeyParts(key) {
-      const clean = String(key || '').trim();
-      const splitIdx = clean.indexOf('--');
-      if (splitIdx !== -1) {
-        return {
-          baseKey: clean.slice(0, splitIdx) || generateSyncKey(),
-          blobId: clean.slice(splitIdx + 2).trim()
-        };
+    const SAMPLE_EPISODES = [
+      {
+        id: 'ep-88',
+        showId: 'show-midnight-mystery',
+        showTitle: 'Midnight Mystery Files',
+        title: 'Ep. 88: The Lighthouse Signal on Point Reyes',
+        date: '2026-11-18',
+        durationSec: 2340,
+        audioUrl: ''
+      },
+      {
+        id: 'ep-142',
+        showId: 'show-tech-frontier',
+        showTitle: 'Tech Frontier Weekly',
+        title: 'Ep. 142: Edge AI & Local Models in Everyday Devices',
+        date: '2026-11-20',
+        durationSec: 2880,
+        audioUrl: ''
+      },
+      {
+        id: 'ep-143',
+        showId: 'show-tech-frontier',
+        showTitle: 'Tech Frontier Weekly',
+        title: 'Ep. 143: Designing Calm Offline-First Software',
+        date: '2026-11-24',
+        durationSec: 2520,
+        audioUrl: ''
       }
-      return { baseKey: clean || generateSyncKey(), blobId: '' };
-    }
+    ];
 
-    function formatCombinedSyncKey(baseKey, blobId) {
-      const cleanBase = String(baseKey || '').trim() || generateSyncKey();
-      const cleanBlob = String(blobId || '').trim();
-      return cleanBlob ? `${cleanBase}--${cleanBlob}` : cleanBase;
-    }
+    let activeSyncKey = localStorage.getItem('castflow_sync_key') || DEFAULT_SYNC_KEY;
+    let syncConnected = false;
+    let currentTab = 'library';
+    let libraryFilter = 'all'; // 'all' | 'shows' | 'saved'
+    let currentEpisodeId = 'ep-142';
+    let isPlaying = false;
+    let simulatedProgressSec = 415;
 
-    function cloudBucketForKey(key) {
-      const { baseKey } = parseSyncKeyParts(key);
-      const safe = String(baseKey || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-      return `castflow_${safe || 'default'}`;
-    }
+    let subscribedShows = [...SAMPLE_SHOWS];
+    let episodes = [...SAMPLE_EPISODES];
+    let queueIds = ['ep-143', 'ep-88'];
+    let notes = [
+      { id: 'note-1', text: '06:55 — Local model quantization keeps latency under 20ms.' }
+    ];
 
-    function updateSyncStatusUI(statusText) {
-      const pill = document.getElementById('syncStatusPill');
-      if (!pill) return;
-      pill.textContent = statusText;
-      if (statusText === 'Synced') {
-        pill.className = 'font-mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
-      } else if (statusText === 'Syncing...' || statusText === 'Pulling...') {
-        pill.className = 'font-mono text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30';
-      } else {
-        pill.className = 'font-mono text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700';
-      }
-    }
-
-    const defaultPrefs = {
-      speed: 1.0,
-      autoSkipAds: true,
-      silenceTrim: false,
-      voiceBoost: false,
-      adSecondsSaved: 0,
-      activeTab: 'player',
-      libraryFilter: 'all',
-      librarySearch: '',
-      librarySortOrder: 'newest',
-      hideListened: false,
-      subscribedShows: [
-        { name: 'Tech Frontier Weekly', icon: '🎙️', feedUrl: '', collectionId: null },
-        { name: 'Midnight Mystery Files', icon: '🕵️', feedUrl: '', collectionId: null }
-      ],
+    let prefs = {
+      updatedAt: Date.now(),
       playedEpisodeIds: [],
-      savedEpisodeIds: [],
-      bookmarks: {},
-      updatedAt: 0
+      savedEpisodeIds: ['ep-142'],
+      librarySortOrder: 'oldest', // 'oldest' | 'newest'
+      hideListened: false,
+      driveMode: false
     };
 
-    let prefs = JSON.parse(JSON.stringify(defaultPrefs));
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlSyncKey = (urlParams.get('sync') || '').trim();
-    let activeSyncKey = urlSyncKey || localStorage.getItem('castflow_active_sync_key') || generateSyncKey();
+    function showToast(message) {
+      const banner = document.getElementById('toastBanner');
+      if (!banner) return;
+      banner.textContent = message;
+      banner.classList.remove('hidden');
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => {
+        banner.classList.add('hidden');
+      }, 2800);
+    }
 
-    function setActiveSyncKeyUI(nextKey) {
-      const clean = String(nextKey || '').trim();
-      if (!clean) return;
-      activeSyncKey = clean;
-      localStorage.setItem('castflow_active_sync_key', activeSyncKey);
-      const keyInput = document.getElementById('syncKeyInput');
-      if (keyInput && keyInput.value !== activeSyncKey) {
-        keyInput.value = activeSyncKey;
+    function formatDuration(sec) {
+      const total = Math.max(0, Math.floor(Number(sec) || 0));
+      const m = Math.floor(total / 60);
+      const s = total % 60;
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    function saveLocalState() {
+      try {
+        const snapshot = {
+          activeSyncKey,
+          currentTab,
+          currentEpisodeId,
+          simulatedProgressSec,
+          subscribedShows,
+          episodes,
+          queueIds,
+          notes,
+          prefs
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+        localStorage.setItem('castflow_sync_key', activeSyncKey);
+      } catch (err) {
+        console.warn('Could not save local state:', err);
       }
     }
 
-    function applyParsedPrefs(parsed) {
-      const p = parsed && typeof parsed === 'object' ? parsed : {};
-      prefs = {
-        ...JSON.parse(JSON.stringify(defaultPrefs)),
-        ...p,
-        speed: Number.isFinite(Number(p.speed)) ? Number(p.speed) : 1.0,
-        autoSkipAds: p.autoSkipAds !== undefined ? Boolean(p.autoSkipAds) : true,
-        silenceTrim: Boolean(p.silenceTrim),
-        voiceBoost: Boolean(p.voiceBoost),
-        adSecondsSaved: Number(p.adSecondsSaved) || 0,
-        activeTab: p.activeTab || 'player',
-        libraryFilter: ['all', 'shows', 'saved'].includes(p.libraryFilter) ? p.libraryFilter : 'all',
-        librarySearch: typeof p.librarySearch === 'string' ? p.librarySearch : '',
-        librarySortOrder: p.librarySortOrder === 'oldest' ? 'oldest' : 'newest',
-        hideListened: Boolean(p.hideListened),
-        subscribedShows: Array.isArray(p.subscribedShows) ? p.subscribedShows : JSON.parse(JSON.stringify(defaultPrefs.subscribedShows)),
-        playedEpisodeIds: Array.isArray(p.playedEpisodeIds) ? p.playedEpisodeIds : [],
-        savedEpisodeIds: Array.isArray(p.savedEpisodeIds) ? p.savedEpisodeIds : [],
-        bookmarks: p.bookmarks && typeof p.bookmarks === 'object' ? p.bookmarks : {},
-        updatedAt: Number(p.updatedAt) || 0
-      };
+    function loadLocalState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (!data || typeof data !== 'object') return;
+
+        if (typeof data.activeSyncKey === 'string' && data.activeSyncKey.trim()) {
+          activeSyncKey = data.activeSyncKey.trim();
+        }
+        if (typeof data.currentTab === 'string') {
+          currentTab = data.currentTab;
+        }
+        if (typeof data.currentEpisodeId === 'string') {
+          currentEpisodeId = data.currentEpisodeId;
+        }
+        if (typeof data.simulatedProgressSec === 'number') {
+          simulatedProgressSec = data.simulatedProgressSec;
+        }
+        if (Array.isArray(data.subscribedShows)) {
+          subscribedShows = data.subscribedShows;
+        }
+        if (Array.isArray(data.episodes) && data.episodes.length > 0) {
+          episodes = data.episodes;
+        }
+        if (Array.isArray(data.queueIds)) {
+          queueIds = data.queueIds;
+        }
+        if (Array.isArray(data.notes)) {
+          notes = data.notes;
+        }
+        if (data.prefs && typeof data.prefs === 'object') {
+          prefs = {
+            ...prefs,
+            ...data.prefs,
+            playedEpisodeIds: Array.isArray(data.prefs.playedEpisodeIds) ? data.prefs.playedEpisodeIds : [],
+            savedEpisodeIds: Array.isArray(data.prefs.savedEpisodeIds) ? data.prefs.savedEpisodeIds : []
+          };
+        }
+      } catch (err) {
+        console.warn('Could not load local state:', err);
+      }
     }
 
-    function serializeSyncPayload() {
-      return {
-        speed: prefs.speed,
-        autoSkipAds: prefs.autoSkipAds,
-        silenceTrim: prefs.silenceTrim,
-        voiceBoost: prefs.voiceBoost,
-        adSecondsSaved: prefs.adSecondsSaved,
-        activeTab: prefs.activeTab,
-        libraryFilter: prefs.libraryFilter,
-        librarySearch: prefs.librarySearch,
-        librarySortOrder: prefs.librarySortOrder,
-        hideListened: prefs.hideListened,
-        subscribedShows: prefs.subscribedShows,
-        playedEpisodeIds: prefs.playedEpisodeIds,
-        savedEpisodeIds: prefs.savedEpisodeIds,
-        bookmarks: prefs.bookmarks,
-        updatedAt: Number(prefs.updatedAt) || Date.now()
-      };
+    function updateSyncStatusUI(statusText = null) {
+      const pill = document.getElementById('syncStatusPill');
+      if (!pill) return;
+
+      const label = statusText || (syncConnected ? 'Synced' : 'Local Only');
+      pill.textContent = label;
+      pill.classList.remove(
+        'bg-emerald-500/15', 'text-emerald-300', 'border-emerald-500/30',
+        'bg-amber-500/15', 'text-amber-300', 'border-amber-500/30',
+        'bg-slate-700/60', 'text-slate-300', 'border-slate-600/50'
+      );
+
+      if (label === 'Synced') {
+        pill.classList.add('bg-emerald-500/15', 'text-emerald-300', 'border-emerald-500/30');
+      } else if (label === 'Syncing...') {
+        pill.classList.add('bg-amber-500/15', 'text-amber-300', 'border-amber-500/30');
+      } else {
+        pill.classList.add('bg-slate-700/60', 'text-slate-300', 'border-slate-600/50');
+      }
     }
 
-    async function pushFallbackSyncState(key, payload) {
-      const cleanKey = String(key || '').trim();
-      if (!cleanKey) return false;
-      const { baseKey, blobId } = parseSyncKeyParts(cleanKey);
-      const bucket = cloudBucketForKey(cleanKey);
-      const bodyObj = {
-        ...payload,
-        syncKey: cleanKey,
-        baseSyncKey: baseKey,
-        updatedAt: Number(payload.updatedAt) || Date.now()
-      };
-      const serializedBody = JSON.stringify(bodyObj);
-      let anySucceeded = false;
+    function getSyncBucketId(key = activeSyncKey) {
+      const clean = String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return clean.slice(-24) || 'defaultcastflowkey';
+    }
 
-      // 1. KeyValue public store keyed by bucket
-      try {
-        const kvKey = encodeURIComponent(bucket);
-        const encodedVal = encodeURIComponent(serializedBody);
-        let upRes = await fetch(`${KEYVALUE_API}/UpdateValue/${kvKey}/${encodedVal}?t=${Date.now()}`, {
-          method: 'POST',
-          cache: 'no-store'
-        });
-        if (!upRes.ok) {
-          await fetch(`${KEYVALUE_API}/Init/${kvKey}/empty?t=${Date.now()}`, {
-            method: 'POST',
-            cache: 'no-store'
-          });
-          upRes = await fetch(`${KEYVALUE_API}/UpdateValue/${kvKey}/${encodedVal}?t=${Date.now()}`, {
-            method: 'POST',
-            cache: 'no-store'
-          });
-        }
-        if (upRes.ok) {
-          anySucceeded = true;
-        }
-      } catch (_) {}
+    async function pushFallbackSyncState(payload) {
+      const bucket = getSyncBucketId(activeSyncKey);
+      const serialized = JSON.stringify(payload);
+      let ok = false;
 
-      // 2. TextDB public key-value store
       try {
-        const textDbRes = await fetch(`${TEXTDB_API}/create/${encodeURIComponent(bucket)}`, {
+        const res = await fetch(`https://textdb.dev/api/data/castflow_${bucket}`, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-          cache: 'no-store',
-          body: serializedBody
+          body: serialized
         });
-        if (textDbRes.ok) {
-          anySucceeded = true;
-        }
+        if (res.ok) ok = true;
       } catch (_) {}
 
-      // 3. KVDB public bucket store
       try {
-        const kvdbRes = await fetch(`${KVDB_API}/${encodeURIComponent(bucket)}/profile`, {
+        const res = await fetch(`https://kvdb.io/castflow_${bucket}/${bucket}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: serializedBody
+          body: serialized
         });
-        if (kvdbRes.ok) {
-          anySucceeded = true;
-        }
+        if (res.ok) ok = true;
       } catch (_) {}
 
-      // 4. JSONBlob store (persists exact blobId inside the Sync Key)
       try {
-        if (blobId) {
-          const putRes = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            cache: 'no-store',
-            body: serializedBody
-          });
-          if (putRes.ok) {
-            anySucceeded = true;
-          }
-        } else {
-          const createRes = await fetch(JSONBLOB_API, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            cache: 'no-store',
-            body: serializedBody
-          });
-          if (createRes.ok) {
-            const locationHeader = createRes.headers.get('X-JsonBlob-Id') || createRes.headers.get('Location') || '';
-            let createdId = '';
-            const idMatch = locationHeader.match(/([a-zA-Z0-9-]{8,})\/?$/);
-            if (idMatch) {
-              createdId = idMatch[1];
-            } else {
-              try {
-                const createdJson = await createRes.json();
-                createdId = String(createdJson?.id || '').trim();
-              } catch (_) {}
-            }
-
-            if (createdId) {
-              const combinedKey = formatCombinedSyncKey(baseKey, createdId);
-              setActiveSyncKeyUI(combinedKey);
-              localStorage.setItem(STORAGE_KEY_PREFIX + activeSyncKey, serializedBody);
-              anySucceeded = true;
-            }
-          }
-        }
+        await fetch(`https://keyvalue.immanuel.co/api/KeyVal/Init/cf_${bucket}/cf_${bucket}/empty`, {
+          method: 'POST'
+        });
+        const res = await fetch(
+          `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/cf_${bucket}/cf_${bucket}/${encodeURIComponent(serialized)}`,
+          { method: 'POST' }
+        );
+        if (res.ok) ok = true;
       } catch (_) {}
 
-      return anySucceeded;
+      if (ok) {
+        syncConnected = true;
+        updateSyncStatusUI('Synced');
+      } else {
+        updateSyncStatusUI(syncConnected ? 'Synced' : 'Local Only');
+      }
+      return ok;
     }
 
-    async function pullFallbackSyncState(key) {
-      const cleanKey = String(key || '').trim();
-      if (!cleanKey) return null;
-      const { blobId } = parseSyncKeyParts(cleanKey);
-      const bucket = cloudBucketForKey(cleanKey);
-      const candidates = [];
+    async function pullFallbackSyncState(key = activeSyncKey) {
+      const bucket = getSyncBucketId(key);
+      const ts = Date.now();
 
-      // 1. KeyValue store
-      try {
-        const kvKey = encodeURIComponent(bucket);
-        const kvRes = await fetch(`${KEYVALUE_API}/GetValue/${kvKey}?t=${Date.now()}`, {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        if (kvRes.ok) {
-          const rawText = await kvRes.text();
-          let unquoted = rawText ? rawText.trim() : '';
-          if (unquoted.startsWith('"') && unquoted.endsWith('"')) {
-            try { unquoted = JSON.parse(unquoted); } catch (_) {}
-          }
-          if (typeof unquoted === 'string' && unquoted.trim().startsWith('{')) {
-            const parsedKv = JSON.parse(unquoted);
-            if (parsedKv && typeof parsedKv === 'object') {
-              candidates.push(parsedKv);
-            }
-          }
-        }
-      } catch (_) {}
+      const endpoints = [
+        `https://textdb.dev/api/data/castflow_${bucket}?_t=${ts}`,
+        `https://kvdb.io/castflow_${bucket}/${bucket}?_t=${ts}`,
+        `https://keyvalue.immanuel.co/api/KeyVal/GetValue/cf_${bucket}/cf_${bucket}?_t=${ts}`
+      ];
 
-      // 2. TextDB store
-      try {
-        const tRes = await fetch(`${TEXTDB_API}/${encodeURIComponent(bucket)}?t=${Date.now()}`, {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        if (tRes.ok) {
-          const tText = await tRes.text();
-          if (tText && tText.trim().startsWith('{')) {
-            const parsedT = JSON.parse(tText.trim());
-            if (parsedT && typeof parsedT === 'object') {
-              candidates.push(parsedT);
-            }
-          }
-        }
-      } catch (_) {}
-
-      // 3. KVDB store
-      try {
-        const kRes = await fetch(`${KVDB_API}/${encodeURIComponent(bucket)}/profile?t=${Date.now()}`, {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        if (kRes.ok) {
-          const parsedK = await kRes.json();
-          if (parsedK && typeof parsedK === 'object') {
-            candidates.push(parsedK);
-          }
-        }
-      } catch (_) {}
-
-      // 4. JSONBlob store
-      if (blobId) {
+      for (const url of endpoints) {
         try {
-          const res = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}?t=${Date.now()}`, {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' },
-            cache: 'no-store'
-          });
-          if (res.ok) {
-            const parsed = await res.json();
-            if (parsed && typeof parsed === 'object') {
-              candidates.push(parsed);
+          const res = await fetch(url, { cache: 'no-store' });
+          if (!res.ok) continue;
+          let rawText = await res.text();
+          if (!rawText) continue;
+
+          try {
+            const outer = JSON.parse(rawText);
+            if (typeof outer === 'string') {
+              rawText = outer;
             }
+          } catch (_) {}
+
+          const parsed = JSON.parse(rawText);
+          if (parsed && typeof parsed === 'object') {
+            syncConnected = true;
+            updateSyncStatusUI('Synced');
+            return parsed;
           }
         } catch (_) {}
       }
 
-      if (!candidates.length) return null;
-      candidates.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
-      return candidates[0];
+      return null;
     }
 
-    async function pushCloudState(key, payload) {
-      if (!key || isApplyingRemoteState) return;
+    function applyIncomingRemotePayload(data) {
+      if (!data || typeof data !== 'object') return;
       try {
-        if (!currentUser && rawFirebaseConfig) {
-          await initFirebaseSync();
+        const incomingUpdatedAt = Number(data.updatedAt || 0);
+        const currentUpdatedAt = Number(prefs.updatedAt || 0);
+
+        if (Array.isArray(data.subscribedShows)) {
+          if (data.subscribedShows.length > 0 || incomingUpdatedAt >= currentUpdatedAt) {
+            subscribedShows = data.subscribedShows;
+          }
         }
-        const docRef = getSyncDocRef(key);
-        if (docRef && currentUser) {
-          updateSyncStatusUI('Syncing...');
-          await setDoc(docRef, {
-            ...payload,
-            syncKey: key,
-            updatedAt: Number(payload.updatedAt) || Date.now()
-          }, { merge: true });
+        if (Array.isArray(data.episodes) && data.episodes.length > 0) {
+          episodes = data.episodes;
+        }
+        if (Array.isArray(data.playedEpisodeIds)) {
+          prefs.playedEpisodeIds = data.playedEpisodeIds;
+        }
+        if (Array.isArray(data.savedEpisodeIds)) {
+          prefs.savedEpisodeIds = data.savedEpisodeIds;
+        }
+        if (typeof data.librarySortOrder === 'string' && data.librarySortOrder) {
+          prefs.librarySortOrder = data.librarySortOrder;
+        }
+        if (typeof data.hideListened === 'boolean') {
+          prefs.hideListened = data.hideListened;
+        }
+        if (incomingUpdatedAt > 0) {
+          prefs.updatedAt = incomingUpdatedAt;
+        }
+
+        saveLocalState();
+        renderAll();
+      } catch (err) {
+        console.warn('Error applying remote sync payload:', err);
+      }
+    }
+
+    async function syncNow(forcePush = false) {
+      try {
+        updateSyncStatusUI('Syncing...');
+        const remote = await pullFallbackSyncState(activeSyncKey);
+        const remoteTs = Number(remote?.updatedAt || 0);
+        const localTs = Number(prefs.updatedAt || 0);
+
+        if (remote && !forcePush && remoteTs > localTs) {
+          applyIncomingRemotePayload(remote);
+          syncConnected = true;
           updateSyncStatusUI('Synced');
           return;
         }
 
-        updateSyncStatusUI('Syncing...');
-        const ok = await pushFallbackSyncState(key, payload);
-        updateSyncStatusUI(ok ? 'Synced' : 'Local Only');
-      } catch (_) {
-        updateSyncStatusUI('Local Only');
-      }
-    }
-
-    function applyIncomingRemotePayload(remote) {
-      if (!remote || typeof remote !== 'object') return;
-      const localUpdated = Number(prefs.updatedAt) || 0;
-      const remoteUpdated = Number(remote.updatedAt) || 0;
-      const localHasCustomShows =
-        Array.isArray(prefs.subscribedShows) &&
-        !(prefs.subscribedShows.length === 2 &&
-          prefs.subscribedShows[0]?.name === 'Tech Frontier Weekly' &&
-          prefs.subscribedShows[1]?.name === 'Midnight Mystery Files');
-      const remoteHasCustomShows =
-        Array.isArray(remote.subscribedShows) &&
-        !(remote.subscribedShows.length === 2 &&
-          remote.subscribedShows[0]?.name === 'Tech Frontier Weekly' &&
-          remote.subscribedShows[1]?.name === 'Midnight Mystery Files');
-
-      const shouldApply =
-        remoteUpdated > localUpdated ||
-        (remoteHasCustomShows && !localHasCustomShows) ||
-        JSON.stringify(remote.subscribedShows || []) !== JSON.stringify(prefs.subscribedShows || []) ||
-        JSON.stringify(remote.playedEpisodeIds || []) !== JSON.stringify(prefs.playedEpisodeIds || []) ||
-        remote.librarySortOrder !== prefs.librarySortOrder ||
-        Boolean(remote.hideListened) !== Boolean(prefs.hideListened);
-
-      if (shouldApply) {
-        isApplyingRemoteState = true;
-        try {
-          const prevShowNames = new Set((prefs.subscribedShows || []).map(s => (s?.name || '').toLowerCase()));
-          applyParsedPrefs(remote);
-          localStorage.setItem(STORAGE_KEY_PREFIX + activeSyncKey, JSON.stringify(serializeSyncPayload()));
-          syncControlsFromPrefs();
-          renderLibrary();
-          renderQueue();
-          switchTab(prefs.activeTab || 'player');
-          (prefs.subscribedShows || []).forEach(show => {
-            if (show && show.name && !prevShowNames.has(show.name.toLowerCase())) {
-              loadEpisodesForShow(show);
-            }
-          });
-        } finally {
-          isApplyingRemoteState = false;
-        }
-      }
-    }
-
-    function subscribeToCloudKey(key) {
-      if (unsubscribeCloudDoc) {
-        try { unsubscribeCloudDoc(); } catch (_) {}
-        unsubscribeCloudDoc = null;
-      }
-      const docRef = getSyncDocRef(key);
-      if (docRef && currentUser) {
-        unsubscribeCloudDoc = onSnapshot(
-          docRef,
-          (snap) => {
-            if (snap && snap.exists()) {
-              applyIncomingRemotePayload(snap.data());
-              updateSyncStatusUI('Synced');
-            }
-          },
-          () => {
-            updateSyncStatusUI('Local Only');
-          }
-        );
-      }
-    }
-
-    async function pullCloudState(key) {
-      if (!key) return false;
-      try {
-        if (!currentUser && rawFirebaseConfig) {
-          await initFirebaseSync();
-        }
-        const docRef = getSyncDocRef(key);
-        if (docRef && currentUser) {
-          updateSyncStatusUI('Pulling...');
-          const snap = await getDoc(docRef);
-          if (snap && snap.exists()) {
-            applyIncomingRemotePayload(snap.data());
-            subscribeToCloudKey(key);
-            updateSyncStatusUI('Synced');
-            return true;
-          }
-          subscribeToCloudKey(key);
-        }
-
-        updateSyncStatusUI('Pulling...');
-        const remote = await pullFallbackSyncState(key);
-        if (remote) {
+        if (
+          remote &&
+          !forcePush &&
+          (!subscribedShows || subscribedShows.length === 0) &&
+          Array.isArray(remote.subscribedShows) &&
+          remote.subscribedShows.length > 0
+        ) {
           applyIncomingRemotePayload(remote);
+          syncConnected = true;
           updateSyncStatusUI('Synced');
-          return true;
+          return;
         }
 
-        const payload = serializeSyncPayload();
-        const seeded = await pushFallbackSyncState(key, payload);
-        updateSyncStatusUI(seeded ? 'Synced' : 'Local Only');
-        return seeded;
-      } catch (_) {
-        updateSyncStatusUI('Local Only');
-        return false;
+        const payload = {
+          updatedAt: localTs || Date.now(),
+          subscribedShows: Array.isArray(subscribedShows) ? subscribedShows : [],
+          episodes: Array.isArray(episodes) ? episodes : [],
+          playedEpisodeIds: Array.isArray(prefs.playedEpisodeIds) ? prefs.playedEpisodeIds : [],
+          savedEpisodeIds: Array.isArray(prefs.savedEpisodeIds) ? prefs.savedEpisodeIds : [],
+          librarySortOrder: prefs.librarySortOrder || 'oldest',
+          hideListened: Boolean(prefs.hideListened)
+        };
+
+        const pushed = await pushFallbackSyncState(payload);
+        if (!pushed && remote) {
+          applyIncomingRemotePayload(remote);
+        }
+      } catch (err) {
+        console.warn('Sync cycle error:', err);
+        updateSyncStatusUI(syncConnected ? 'Synced' : 'Local Only');
       }
     }
 
-    function syncControlsFromPrefs() {
-      const range = document.getElementById('speedRange');
-      const label = document.getElementById('speedValueLabel');
-      if (range) range.value = prefs.speed;
-      if (label) label.textContent = `${Number(prefs.speed || 1).toFixed(2)}x`;
-
-      const autoSkipEl = document.getElementById('toggleAutoSkipAds');
-      const silenceEl = document.getElementById('toggleSilenceTrim');
-      const voiceEl = document.getElementById('toggleVoiceBoost');
-      if (autoSkipEl) autoSkipEl.checked = Boolean(prefs.autoSkipAds);
-      if (silenceEl) silenceEl.checked = Boolean(prefs.silenceTrim);
-      if (voiceEl) voiceEl.checked = Boolean(prefs.voiceBoost);
-      updateAdSavedPill();
+    function markPreferenceChanged() {
+      prefs.updatedAt = Date.now();
+      saveLocalState();
+      syncNow(true);
     }
 
-    function loadPrefsForKey(key) {
-      try {
-        activeSyncKey = String(key || '').trim() || generateSyncKey();
-        localStorage.setItem('castflow_active_sync_key', activeSyncKey);
-        const raw = localStorage.getItem(STORAGE_KEY_PREFIX + activeSyncKey);
-        const parsed = raw ? JSON.parse(raw) : {};
-        applyParsedPrefs(parsed);
-      } catch (_) {
-        applyParsedPrefs(defaultPrefs);
-      }
-      const keyInput = document.getElementById('syncKeyInput');
-      if (keyInput) keyInput.value = activeSyncKey;
-      updateSyncStatusUI('Synced');
+    function getCurrentEpisode() {
+      return episodes.find((ep) => ep.id === currentEpisodeId) || episodes[0] || null;
     }
 
-    function savePrefs() {
-      try {
-        prefs.updatedAt = Date.now();
-        const payload = serializeSyncPayload();
-        localStorage.setItem('castflow_active_sync_key', activeSyncKey);
-        localStorage.setItem(STORAGE_KEY_PREFIX + activeSyncKey, JSON.stringify(payload));
-        updateSyncStatusUI('Synced');
-        pushCloudState(activeSyncKey, payload);
-      } catch (_) {}
+    function playEpisode(epId) {
+      const target = episodes.find((ep) => ep.id === epId);
+      if (!target) return;
+      currentEpisodeId = target.id;
+      isPlaying = true;
+      simulatedProgressSec = 0;
+      saveLocalState();
+      renderPlayer();
+      switchTab('player');
+      showToast(`Playing: ${target.title}`);
     }
 
-    const runtime = {
-      episodes: [],
-      queueIds: [],
-      currentEpisodeId: null,
-      isPlaying: false,
-      currentTime: 0,
-      duration: 1800,
-      lastTickTime: null,
-      audioCtx: null,
-      sourceNode: null,
-      lowShelfFilter: null,
-      highShelfFilter: null,
-      compressorNode: null,
-      masterGain: null,
-      lastSkippedAd: null,
-      toastTimer: null,
-      expandedShowNames: {},
-      loadingShowNames: {}
-    };
-
-    function showToast(message, showUndoAd = false) {
-      const toast = document.getElementById('toastBanner');
-      const msgEl = document.getElementById('toastMessage');
-      const undoBtn = document.getElementById('toastUndoBtn');
-      if (!toast || !msgEl || !undoBtn) return;
-
-      msgEl.textContent = message;
-      undoBtn.classList.toggle('hidden', !showUndoAd);
-      toast.classList.remove('hidden');
-
-      clearTimeout(runtime.toastTimer);
-      runtime.toastTimer = setTimeout(() => {
-        toast.classList.add('hidden');
-      }, 4500);
-    }
-
-    function formatTime(sec) {
-      const s = Math.max(0, Math.floor(Number.isFinite(sec) ? sec : 0));
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      const rem = s % 60;
-      if (h > 0) {
-        return `${h}:${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
-      }
-      return `${m}:${String(rem).padStart(2, '0')}`;
-    }
-
-    function formatDurationBadge(sec) {
-      const mins = Math.max(1, Math.round((Number.isFinite(sec) ? sec : 0) / 60));
-      return `${mins} min`;
-    }
-
-    function updateAdSavedPill() {
-      const pill = document.getElementById('adSavedPill');
-      if (!pill) return;
-      const total = Math.max(0, Math.floor(prefs.adSecondsSaved || 0));
-      pill.textContent = total >= 60
-        ? `${Math.floor(total / 60)}m ${total % 60}s ads skipped`
-        : `${total}s ads skipped`;
-    }
-
-    function applyAudioSettings() {
-      try {
-        if (audioEl && audioEl.src) {
-          audioEl.playbackRate = prefs.speed;
-        }
-        if (runtime.lowShelfFilter && runtime.highShelfFilter && runtime.compressorNode) {
-          runtime.lowShelfFilter.gain.value = prefs.voiceBoost ? 3.5 : 0;
-          runtime.highShelfFilter.gain.value = prefs.voiceBoost ? 4.5 : 0;
-          runtime.compressorNode.threshold.value = prefs.silenceTrim ? -28 : -12;
-        }
-      } catch (_) {}
-    }
-
-    function setSpeed(val) {
-      const clamped = Math.min(2.0, Math.max(0.5, Number(val) || 1.0));
-      prefs.speed = clamped;
-      const range = document.getElementById('speedRange');
-      const label = document.getElementById('speedValueLabel');
-      if (range) range.value = clamped;
-      if (label) label.textContent = `${clamped.toFixed(2)}x`;
-      applyAudioSettings();
-      savePrefs();
-    }
-
-    function buildDemoEpisodes() {
-      return [
-        {
-          id: 'ep-1',
-          show: 'Tech Frontier Weekly',
-          icon: '🎙️',
-          title: 'Ep. 142: Edge AI & Local Models on Mobile',
-          pubDate: '2026-11-20',
-          duration: 2100,
-          audioUrl: '',
-          description: 'How compact on-device models run fast with low power draw.',
-          chapters: [
-            { start: 0, title: 'Intro & Headlines' },
-            { start: 120, title: 'Sponsor Break' },
-            { start: 240, title: 'Local Inference Benchmarks' },
-            { start: 1150, title: 'Battery & Thermal Tradeoffs' }
-          ],
-          ads: [
-            { start: 120, end: 240, label: 'Midroll Ad' },
-            { start: 1050, end: 1150, label: 'Sponsor Spot' }
-          ]
-        },
-        {
-          id: 'ep-2',
-          show: 'Midnight Mystery Files',
-          icon: '🕵️',
-          title: 'Ep. 88: The Lighthouse Signal of 1954',
-          pubDate: '2026-11-18',
-          duration: 1920,
-          audioUrl: '',
-          description: 'Archival logs and maritime radio transcripts from a foggy coast.',
-          chapters: [
-            { start: 0, title: 'Fog Bank & First Contact' },
-            { start: 180, title: 'Commercial Break' },
-            { start: 300, title: 'Harbor Master Testimony' }
-          ],
-          ads: [
-            { start: 180, end: 300, label: 'Ad Break' }
-          ]
-        }
-      ];
-    }
-
-    function currentEpisode() {
-      return runtime.episodes.find(e => e.id === runtime.currentEpisodeId) || runtime.episodes[0] || null;
-    }
-
-    function isEpisodePlayed(epId) {
-      return Array.isArray(prefs.playedEpisodeIds) && prefs.playedEpisodeIds.includes(epId);
-    }
-
-    function isEpisodeSaved(epId) {
-      return Array.isArray(prefs.savedEpisodeIds) && prefs.savedEpisodeIds.includes(epId);
-    }
-
-    function toggleEpisodePlayed(epId) {
-      if (!Array.isArray(prefs.playedEpisodeIds)) prefs.playedEpisodeIds = [];
+    function toggleListened(epId) {
+      if (!epId) return;
       const idx = prefs.playedEpisodeIds.indexOf(epId);
       if (idx >= 0) {
         prefs.playedEpisodeIds.splice(idx, 1);
-        showToast('Marked as unlistened');
       } else {
         prefs.playedEpisodeIds.push(epId);
-        showToast('Marked as listened');
       }
-      savePrefs();
+      markPreferenceChanged();
       renderLibrary();
-      renderQueue();
+      renderPlayer();
     }
 
-    function toggleEpisodeSaved(epId) {
-      if (!Array.isArray(prefs.savedEpisodeIds)) prefs.savedEpisodeIds = [];
+    function toggleSaved(epId) {
+      if (!epId) return;
       const idx = prefs.savedEpisodeIds.indexOf(epId);
       if (idx >= 0) {
         prefs.savedEpisodeIds.splice(idx, 1);
-        showToast('Removed from saved');
       } else {
         prefs.savedEpisodeIds.push(epId);
-        showToast('Saved episode');
       }
-      savePrefs();
+      markPreferenceChanged();
       renderLibrary();
-      renderQueue();
+      renderPlayer();
     }
 
-    function extractEpisodeNumber(title) {
-      const m = String(title || '').match(/\b(?:ep\.?|episode|#)\s*(\d+)\b/i);
-      return m ? parseInt(m[1], 10) : null;
-    }
+    function renderPlayer() {
+      const ep = getCurrentEpisode();
+      const showTitleEl = document.getElementById('playerShowTitle');
+      const epTitleEl = document.getElementById('playerEpisodeTitle');
+      const epMetaEl = document.getElementById('playerEpisodeMeta');
+      const playPauseBtn = document.getElementById('playPauseBtn');
+      const currEl = document.getElementById('currentTimeLabel');
+      const durEl = document.getElementById('durationLabel');
+      const slider = document.getElementById('progressSlider');
+      const markBtn = document.getElementById('playerMarkListenedBtn');
+      const saveBtn = document.getElementById('playerSaveBtn');
+      const artwork = document.getElementById('playerArtwork');
 
-    function sortEpisodesList(list) {
-      const order = prefs.librarySortOrder === 'oldest' ? 'oldest' : 'newest';
-      return [...list].sort((a, b) => {
-        const ta = Date.parse(a.pubDate || '') || 0;
-        const tb = Date.parse(b.pubDate || '') || 0;
-        if (ta !== tb) {
-          return order === 'oldest' ? ta - tb : tb - ta;
-        }
-        const na = extractEpisodeNumber(a.title);
-        const nb = extractEpisodeNumber(b.title);
-        if (na !== null && nb !== null && na !== nb) {
-          return order === 'oldest' ? na - nb : nb - na;
-        }
-        return 0;
-      });
-    }
-
-    function renderPlayerHeader(ep) {
-      if (!ep) return;
-      document.getElementById('epTitle').textContent = ep.title;
-      document.getElementById('epShowMeta').textContent = `${ep.show} • ${formatDurationBadge(ep.duration)}`;
-      document.getElementById('headerShowLabel').textContent = ep.show;
-      document.getElementById('epArtwork').textContent = ep.icon || '🎧';
-      document.getElementById('carModeTitle').textContent = ep.title;
-      document.getElementById('carModeShow').textContent = ep.show;
-    }
-
-    function renderScrubberMarkers(ep) {
-      const container = document.getElementById('adMarkersLayer');
-      if (!container || !ep) return;
-      container.innerHTML = '';
-      const dur = Math.max(1, runtime.duration || ep.duration || 1);
-      (ep.ads || []).forEach(ad => {
-        const leftPct = Math.max(0, Math.min(100, (ad.start / dur) * 100));
-        const widthPct = Math.max(1, Math.min(100 - leftPct, ((ad.end - ad.start) / dur) * 100));
-        const mark = document.createElement('div');
-        mark.className = 'ad-marker';
-        mark.style.left = `${leftPct}%`;
-        mark.style.width = `${widthPct}%`;
-        container.appendChild(mark);
-      });
-    }
-
-    function renderExtras(ep) {
-      const chaptersList = document.getElementById('chaptersList');
-      const bookmarksList = document.getElementById('bookmarksList');
-      if (!ep || !chaptersList || !bookmarksList) return;
-
-      chaptersList.innerHTML = '';
-      (ep.chapters || []).forEach(ch => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-surface hover:bg-cardAlt border border-slate-800 text-left transition';
-        btn.innerHTML = `<span class="text-xs font-semibold text-white truncate">${ch.title}</span><span class="font-mono text-xs text-indigo-300 ml-2">${formatTime(ch.start)}</span>`;
-        btn.addEventListener('click', () => {
-          seekTo(ch.start);
-          switchTab('player');
-        });
-        chaptersList.appendChild(btn);
-      });
-
-      const notes = prefs.bookmarks[ep.id] || [];
-      bookmarksList.innerHTML = '';
-      if (!notes.length) {
-        bookmarksList.innerHTML = '<p class="text-xs text-slate-500">No bookmarks for this episode yet.</p>';
+      if (!ep) {
+        if (showTitleEl) showTitleEl.textContent = 'Library Ready';
+        if (epTitleEl) epTitleEl.textContent = 'No Episode Selected';
+        if (epMetaEl) epMetaEl.textContent = 'Choose an episode from the Library tab.';
         return;
       }
-      notes.forEach((bm, idx) => {
-        const row = document.createElement('div');
-        row.className = 'flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-surface border border-slate-800';
-        row.innerHTML = `
-          <button type="button" class="text-left flex-1 min-w-0">
-            <span class="font-mono text-xs text-amber-300 font-bold">${formatTime(bm.time)}</span>
-            <p class="text-xs text-slate-200 truncate">${bm.note || 'Saved moment'}</p>
-          </button>
-          <button type="button" data-bm-idx="${idx}" class="text-xs text-slate-500 hover:text-rose-400 px-2 py-1">✕</button>
-        `;
-        row.querySelector('button').addEventListener('click', () => {
-          seekTo(bm.time);
-          switchTab('player');
-        });
-        row.querySelector('[data-bm-idx]').addEventListener('click', () => {
-          notes.splice(idx, 1);
-          prefs.bookmarks[ep.id] = notes;
-          savePrefs();
-          renderExtras(ep);
-        });
-        bookmarksList.appendChild(row);
-      });
+
+      const show = subscribedShows.find((s) => s.id === ep.showId);
+      if (artwork && show?.artwork) {
+        artwork.src = show.artwork;
+      }
+      if (showTitleEl) showTitleEl.textContent = ep.showTitle || show?.title || 'Podcast';
+      if (epTitleEl) epTitleEl.textContent = ep.title;
+      if (epMetaEl) epMetaEl.textContent = `${ep.date || 'Recent'} • ${formatDuration(ep.durationSec || 1800)}`;
+      if (playPauseBtn) playPauseBtn.textContent = isPlaying ? 'Pause' : 'Play';
+
+      const dur = Number(ep.durationSec) || 1800;
+      const curr = Math.min(simulatedProgressSec, dur);
+      if (currEl) currEl.textContent = formatDuration(curr);
+      if (durEl) durEl.textContent = formatDuration(dur);
+      if (slider) {
+        slider.max = String(dur);
+        slider.value = String(curr);
+      }
+
+      const isPlayed = prefs.playedEpisodeIds.includes(ep.id);
+      if (markBtn) {
+        markBtn.textContent = isPlayed ? '✓ Listened' : 'Mark Listened';
+      }
+
+      const isSaved = prefs.savedEpisodeIds.includes(ep.id);
+      if (saveBtn) {
+        saveBtn.textContent = isSaved ? '★ Saved' : '☆ Save';
+      }
     }
 
     function renderQueue() {
       const listEl = document.getElementById('queueList');
+      const countEl = document.getElementById('queueCountLabel');
       if (!listEl) return;
-      listEl.innerHTML = '';
 
-      if (!runtime.queueIds.length) {
-        listEl.innerHTML = '<p class="text-xs text-slate-500">Queue is empty.</p>';
+      const items = queueIds
+        .map((id) => episodes.find((ep) => ep.id === id))
+        .filter(Boolean);
+
+      if (countEl) countEl.textContent = `${items.length} ${items.length === 1 ? 'episode' : 'episodes'}`;
+
+      if (items.length === 0) {
+        listEl.innerHTML = `<p class="rounded-2xl bg-slate-950/60 p-4 text-xs text-slate-400">Your queue is empty. Add episodes from Library.</p>`;
         return;
       }
 
-      runtime.queueIds.forEach((epId, idx) => {
-        const ep = runtime.episodes.find(e => e.id === epId);
-        if (!ep) return;
-        const active = ep.id === runtime.currentEpisodeId;
-        const played = isEpisodePlayed(ep.id);
-        const card = document.createElement('div');
-        card.className = `flex items-center justify-between gap-2 p-3 rounded-xl border ${active ? 'bg-indigo-950/40 border-indigo-500/40' : 'bg-surface border-slate-800'}`;
-        card.innerHTML = `
-          <button type="button" class="flex items-center gap-3 min-w-0 flex-1 text-left">
-            <span class="text-lg">${ep.icon || '🎧'}</span>
-            <div class="min-w-0 flex-1">
-              <p class="text-xs font-bold text-white truncate ${played ? 'opacity-60 line-through' : ''}">${ep.title}</p>
-              <p class="text-[11px] text-slate-400 truncate">${ep.show} • ${formatDurationBadge(ep.duration)}</p>
-            </div>
-          </button>
-          <div class="flex items-center gap-1 shrink-0">
-            <button type="button" data-q-played="${ep.id}" class="px-2 py-1.5 rounded-lg bg-card hover:bg-cardAlt text-xs ${played ? 'text-emerald-400' : 'text-slate-400'}" title="Toggle Listened">✓</button>
-            <button type="button" data-q-rm="${idx}" class="px-2 py-1.5 rounded-lg bg-card hover:bg-cardAlt text-xs text-slate-400 hover:text-rose-400" title="Remove">✕</button>
+      listEl.innerHTML = items.map((ep) => `
+        <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-3">
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold text-white">${escapeHtml(ep.title)}</p>
+            <p class="truncate text-xs text-slate-400">${escapeHtml(ep.showTitle || '')} • ${formatDuration(ep.durationSec || 1800)}</p>
           </div>
-        `;
-        card.querySelector('button').addEventListener('click', () => {
-          selectEpisode(ep.id, true);
-          switchTab('player');
-        });
-        card.querySelector('[data-q-played]').addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          toggleEpisodePlayed(ep.id);
-        });
-        card.querySelector('[data-q-rm]').addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          runtime.queueIds.splice(idx, 1);
+          <div class="flex shrink-0 items-center gap-2">
+            <button type="button" data-play-ep="${ep.id}" class="rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500">
+              Play
+            </button>
+            <button type="button" data-remove-queue="${ep.id}" class="rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700">
+              ✕
+            </button>
+          </div>
+        </div>
+      `).join('');
+
+      listEl.querySelectorAll('[data-play-ep]').forEach((btn) => {
+        btn.addEventListener('click', () => playEpisode(btn.getAttribute('data-play-ep')));
+      });
+      listEl.querySelectorAll('[data-remove-queue]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-remove-queue');
+          queueIds = queueIds.filter((q) => q !== id);
+          saveLocalState();
           renderQueue();
         });
-        listEl.appendChild(card);
       });
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
 
     function renderLibrary() {
-      const showsContainer = document.getElementById('subscribedShowsList');
-      const episodesContainer = document.getElementById('libraryEpisodesList');
-      const countBadge = document.getElementById('subscribedShowsCount');
-      const sortBtn = document.getElementById('librarySortBtn');
+      const searchQuery = (document.getElementById('librarySearchInput')?.value || '').trim().toLowerCase();
+      const sortBtn = document.getElementById('toggleSortOrderBtn');
       const hideBtn = document.getElementById('toggleHideListenedBtn');
-      const filterAllBtn = document.getElementById('filterAllBtn');
-      const filterShowsBtn = document.getElementById('filterShowsBtn');
-      const filterSavedBtn = document.getElementById('filterSavedBtn');
-      if (!showsContainer || !episodesContainer) return;
+      const showsListEl = document.getElementById('subscribedShowsList');
+      const showsCountEl = document.getElementById('subscribedCountLabel');
+      const epListEl = document.getElementById('episodesList');
+      const epCountEl = document.getElementById('episodesCountLabel');
 
-      if (countBadge) {
-        countBadge.textContent = `${prefs.subscribedShows.length} ${prefs.subscribedShows.length === 1 ? 'show' : 'shows'}`;
-      }
+      // Filter button active states
+      const allBtn = document.getElementById('filterAllBtn');
+      const showsBtn = document.getElementById('filterShowsBtn');
+      const savedBtn = document.getElementById('filterSavedBtn');
+      [
+        [allBtn, libraryFilter === 'all'],
+        [showsBtn, libraryFilter === 'shows'],
+        [savedBtn, libraryFilter === 'saved']
+      ].forEach(([btn, active]) => {
+        if (!btn) return;
+        btn.classList.toggle('bg-indigo-600', active);
+        btn.classList.toggle('text-white', active);
+        btn.classList.toggle('bg-slate-800/90', !active);
+        btn.classList.toggle('text-slate-300', !active);
+      });
+
       if (sortBtn) {
-        sortBtn.textContent = prefs.librarySortOrder === 'oldest' ? '↕️ Oldest First' : '↕️ Newest First';
+        sortBtn.textContent = prefs.librarySortOrder === 'newest' ? '⇅ Newest First' : '⇅ Oldest First';
       }
       if (hideBtn) {
-        hideBtn.textContent = prefs.hideListened ? '🙈 Hide Listened: ON' : '👁️ Hide Listened: OFF';
+        hideBtn.textContent = prefs.hideListened ? '👁 Hide Listened: ON' : '👁 Hide Listened: OFF';
       }
 
-      const setFilterStyle = (btn, active) => {
-        if (!btn) return;
-        btn.className = active
-          ? 'flex-1 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white'
-          : 'flex-1 py-2 rounded-xl text-xs font-bold bg-surface text-slate-400 hover:text-white';
-      };
-      setFilterStyle(filterAllBtn, prefs.libraryFilter === 'all');
-      setFilterStyle(filterShowsBtn, prefs.libraryFilter === 'shows');
-      setFilterStyle(filterSavedBtn, prefs.libraryFilter === 'saved');
-
-      const q = String(prefs.librarySearch || '').trim().toLowerCase();
-      showsContainer.innerHTML = '';
-
-      const matchingShows = prefs.subscribedShows.filter(show => {
-        if (!q) return true;
-        return String(show.name || '').toLowerCase().includes(q);
-      });
-
-      if (!matchingShows.length) {
-        showsContainer.innerHTML = '<p class="text-xs text-slate-500">No matching shows in your library.</p>';
-      } else {
-        matchingShows.forEach((show, sIdx) => {
-          const isExpanded = Boolean(runtime.expandedShowNames[show.name]);
-          const isLoading = Boolean(runtime.loadingShowNames[show.name]);
-          const showEpsRaw = runtime.episodes.filter(ep => ep.show.toLowerCase() === show.name.toLowerCase());
-          const visibleShowEps = sortEpisodesList(showEpsRaw).filter(ep => {
-            if (prefs.hideListened && isEpisodePlayed(ep.id)) return false;
-            if (q && !ep.title.toLowerCase().includes(q) && !show.name.toLowerCase().includes(q)) return false;
-            return true;
-          });
-
-          const wrapper = document.createElement('div');
-          wrapper.className = 'rounded-xl bg-surface border border-slate-800 overflow-hidden';
-
-          const headerRow = document.createElement('div');
-          headerRow.className = 'flex items-center justify-between gap-2 p-3';
-          headerRow.innerHTML = `
-            <button type="button" class="flex items-center gap-2.5 min-w-0 flex-1 text-left">
-              <span class="text-lg">${show.icon || '🎙️'}</span>
-              <div class="min-w-0 flex-1">
-                <p class="text-xs font-bold text-white truncate">${show.name}</p>
-                <p class="text-[11px] text-slate-400">${showEpsRaw.length} episodes • ${isExpanded ? 'Hide' : 'Show episodes'}</p>
-              </div>
-            </button>
-            <button type="button" data-unsub="${sIdx}" class="px-2.5 py-1 rounded-lg bg-card hover:bg-cardAlt text-[11px] text-slate-400 hover:text-rose-400">
-              Remove
-            </button>
-          `;
-
-          headerRow.querySelector('button').addEventListener('click', () => {
-            const nextOpen = !runtime.expandedShowNames[show.name];
-            runtime.expandedShowNames[show.name] = nextOpen;
-            if (nextOpen && !showEpsRaw.length) {
-              loadEpisodesForShow(show);
-            }
-            renderLibrary();
-          });
-
-          headerRow.querySelector('[data-unsub]').addEventListener('click', () => {
-            prefs.subscribedShows.splice(sIdx, 1);
-            savePrefs();
-            renderLibrary();
-            showToast('Removed show');
-          });
-
-          wrapper.appendChild(headerRow);
-
-          if (isExpanded) {
-            const epBox = document.createElement('div');
-            epBox.className = 'px-3 pb-3 space-y-2 border-t border-slate-800/80 pt-2.5';
-            if (isLoading && !visibleShowEps.length) {
-              epBox.innerHTML = '<p class="text-xs text-indigo-300">Loading episodes...</p>';
-            } else if (!visibleShowEps.length) {
-              epBox.innerHTML = '<p class="text-xs text-slate-500">No episodes match current filters.</p>';
-            } else {
-              visibleShowEps.forEach(ep => {
-                const played = isEpisodePlayed(ep.id);
-                const saved = isEpisodeSaved(ep.id);
-                const row = document.createElement('div');
-                row.className = 'flex items-center justify-between gap-2 p-2.5 rounded-xl bg-card border border-slate-800';
-                row.innerHTML = `
-                  <button type="button" class="text-left min-w-0 flex-1">
-                    <p class="text-xs font-semibold text-white truncate ${played ? 'opacity-60 line-through' : ''}">${ep.title}</p>
-                    <p class="text-[11px] text-slate-400">${ep.pubDate || ''} • ${formatDurationBadge(ep.duration)}</p>
-                  </button>
-                  <div class="flex items-center gap-1 shrink-0">
-                    <button type="button" data-ep-play="${ep.id}" class="px-2 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-bold">▶</button>
-                    <button type="button" data-ep-played="${ep.id}" class="px-2 py-1 rounded-lg bg-surface text-[11px] ${played ? 'text-emerald-400 font-bold' : 'text-slate-400'}">${played ? 'Listened' : 'Mark'}</button>
-                    <button type="button" data-ep-save="${ep.id}" class="px-2 py-1 rounded-lg bg-surface text-xs ${saved ? 'text-amber-300' : 'text-slate-400'}">★</button>
+      // Shows
+      const filteredShows = subscribedShows.filter((s) =>
+        !searchQuery || String(s.title || '').toLowerCase().includes(searchQuery)
+      );
+      if (showsCountEl) {
+        showsCountEl.textContent = `${filteredShows.length} ${filteredShows.length === 1 ? 'show' : 'shows'}`;
+      }
+      if (showsListEl) {
+        if (filteredShows.length === 0) {
+          showsListEl.innerHTML = `<p class="text-xs text-slate-400">No matching shows in your library.</p>`;
+        } else {
+          showsListEl.innerHTML = filteredShows.map((show) => {
+            const epCount = episodes.filter((e) => e.showId === show.id).length;
+            return `
+              <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3">
+                <div class="flex min-w-0 items-center gap-3">
+                  <img
+                    src="${escapeHtml(show.artwork || 'https://placehold.co/80x80/1e1b4b/c7d2fe?text=Pod')}"
+                    onerror="this.src='https://placehold.co/80x80/1e1b4b/c7d2fe?text=Pod'"
+                    alt="${escapeHtml(show.title)}"
+                    class="h-11 w-11 shrink-0 rounded-xl object-cover"
+                  />
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold text-white">${escapeHtml(show.title)}</p>
+                    <p class="truncate text-xs text-slate-400">${epCount} ${epCount === 1 ? 'episode' : 'episodes'}</p>
                   </div>
-                `;
-                const playAction = () => {
-                  selectEpisode(ep.id, true);
-                  switchTab('player');
-                };
-                row.querySelector('button').addEventListener('click', playAction);
-                row.querySelector('[data-ep-play]').addEventListener('click', playAction);
-                row.querySelector('[data-ep-played]').addEventListener('click', () => toggleEpisodePlayed(ep.id));
-                row.querySelector('[data-ep-save]').addEventListener('click', () => toggleEpisodeSaved(ep.id));
-                epBox.appendChild(row);
-              });
-            }
-            wrapper.appendChild(epBox);
-          }
+                </div>
+                <button
+                  type="button"
+                  data-remove-show="${escapeHtml(show.id)}"
+                  class="shrink-0 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-rose-300"
+                >
+                  Remove
+                </button>
+              </div>
+            `;
+          }).join('');
 
-          showsContainer.appendChild(wrapper);
-        });
+          showsListEl.querySelectorAll('[data-remove-show]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const showId = btn.getAttribute('data-remove-show');
+              subscribedShows = subscribedShows.filter((s) => s.id !== showId);
+              markPreferenceChanged();
+              renderLibrary();
+            });
+          });
+        }
       }
 
-      episodesContainer.innerHTML = '';
-      if (prefs.libraryFilter === 'shows') {
-        episodesContainer.innerHTML = '<p class="text-xs text-slate-500">Showing subscribed shows above. Switch to All or Saved Eps to view episode list.</p>';
-        return;
+      // Episodes
+      let visibleEpisodes = [...episodes];
+      if (libraryFilter === 'saved') {
+        visibleEpisodes = visibleEpisodes.filter((ep) => prefs.savedEpisodeIds.includes(ep.id));
+      }
+      if (prefs.hideListened) {
+        visibleEpisodes = visibleEpisodes.filter((ep) => !prefs.playedEpisodeIds.includes(ep.id));
+      }
+      if (searchQuery) {
+        visibleEpisodes = visibleEpisodes.filter((ep) =>
+          String(ep.title || '').toLowerCase().includes(searchQuery) ||
+          String(ep.showTitle || '').toLowerCase().includes(searchQuery)
+        );
       }
 
-      const filteredEps = sortEpisodesList(runtime.episodes).filter(ep => {
-        if (prefs.libraryFilter === 'saved' && !isEpisodeSaved(ep.id)) return false;
-        if (prefs.hideListened && isEpisodePlayed(ep.id)) return false;
-        if (q && !ep.title.toLowerCase().includes(q) && !ep.show.toLowerCase().includes(q)) return false;
-        return true;
+      visibleEpisodes.sort((a, b) => {
+        const dateA = String(a.date || '');
+        const dateB = String(b.date || '');
+        return prefs.librarySortOrder === 'newest'
+          ? dateB.localeCompare(dateA)
+          : dateA.localeCompare(dateB);
       });
 
-      if (!filteredEps.length) {
-        episodesContainer.innerHTML = '<p class="text-xs text-slate-500">No episodes match your current view.</p>';
+      if (epCountEl) {
+        epCountEl.textContent = `${visibleEpisodes.length} ${visibleEpisodes.length === 1 ? 'episode' : 'episodes'}`;
+      }
+
+      if (epListEl) {
+        if (visibleEpisodes.length === 0) {
+          epListEl.innerHTML = `<p class="rounded-2xl bg-slate-950/60 p-4 text-xs text-slate-400">No episodes match your current filters.</p>`;
+        } else {
+          epListEl.innerHTML = visibleEpisodes.map((ep) => {
+            const isPlayed = prefs.playedEpisodeIds.includes(ep.id);
+            const isSaved = prefs.savedEpisodeIds.includes(ep.id);
+            return `
+              <div class="flex items-center justify-between gap-2.5 rounded-2xl border border-slate-800/80 bg-slate-950/65 p-3 ${isPlayed ? 'opacity-70' : ''}">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold text-white">${escapeHtml(ep.title)}</p>
+                  <p class="truncate text-xs text-slate-400">
+                    ${escapeHtml(ep.showTitle || '')} • ${escapeHtml(ep.date || '')} • ${formatDuration(ep.durationSec || 1800)}
+                  </p>
+                </div>
+                <div class="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-ep-play="${escapeHtml(ep.id)}"
+                    class="rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500"
+                  >
+                    Play
+                  </button>
+                  <button
+                    type="button"
+                    data-ep-mark="${escapeHtml(ep.id)}"
+                    class="rounded-xl border ${isPlayed ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300' : 'border-slate-700 bg-slate-800 text-slate-300'} px-2.5 py-1.5 text-xs font-medium transition hover:bg-slate-700"
+                  >
+                    ${isPlayed ? 'Listened' : 'Mark'}
+                  </button>
+                  <button
+                    type="button"
+                    data-ep-save="${escapeHtml(ep.id)}"
+                    aria-label="Save episode"
+                    class="rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium ${isSaved ? 'text-amber-300' : 'text-slate-400'} transition hover:bg-slate-700"
+                  >
+                    ${isSaved ? '★' : '☆'}
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          epListEl.querySelectorAll('[data-ep-play]').forEach((btn) => {
+            btn.addEventListener('click', () => playEpisode(btn.getAttribute('data-ep-play')));
+          });
+          epListEl.querySelectorAll('[data-ep-mark]').forEach((btn) => {
+            btn.addEventListener('click', () => toggleListened(btn.getAttribute('data-ep-mark')));
+          });
+          epListEl.querySelectorAll('[data-ep-save]').forEach((btn) => {
+            btn.addEventListener('click', () => toggleSaved(btn.getAttribute('data-ep-save')));
+          });
+        }
+      }
+    }
+
+    function renderNotes() {
+      const listEl = document.getElementById('notesList');
+      if (!listEl) return;
+
+      if (!notes.length) {
+        listEl.innerHTML = `<p class="text-xs text-slate-400">No notes yet.</p>`;
         return;
       }
 
-      filteredEps.slice(0, 60).forEach(ep => {
-        const played = isEpisodePlayed(ep.id);
-        const saved = isEpisodeSaved(ep.id);
-        const card = document.createElement('div');
-        card.className = 'flex items-center justify-between gap-2 p-3 rounded-xl bg-surface border border-slate-800';
-        card.innerHTML = `
-          <button type="button" class="text-left min-w-0 flex-1">
-            <p class="text-xs font-bold text-white truncate ${played ? 'opacity-60 line-through' : ''}">${ep.title}</p>
-            <p class="text-[11px] text-slate-400 truncate">${ep.show} • ${ep.pubDate || ''} • ${formatDurationBadge(ep.duration)}</p>
+      listEl.innerHTML = notes.map((n) => `
+        <div class="flex items-center justify-between gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-3 text-xs">
+          <span class="text-slate-200">${escapeHtml(n.text)}</span>
+          <button type="button" data-del-note="${escapeHtml(n.id)}" class="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-rose-300">
+            ✕
           </button>
-          <div class="flex items-center gap-1 shrink-0">
-            <button type="button" data-lib-play="${ep.id}" class="px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold">Play</button>
-            <button type="button" data-lib-played="${ep.id}" class="px-2.5 py-1.5 rounded-lg bg-card text-[11px] ${played ? 'text-emerald-400 font-bold' : 'text-slate-400'}">${played ? 'Listened' : 'Mark'}</button>
-            <button type="button" data-lib-save="${ep.id}" class="px-2.5 py-1.5 rounded-lg bg-card text-xs ${saved ? 'text-amber-300' : 'text-slate-400'}">★</button>
-          </div>
-        `;
-        const openPlay = () => {
-          selectEpisode(ep.id, true);
-          switchTab('player');
-        };
-        card.querySelector('button').addEventListener('click', openPlay);
-        card.querySelector('[data-lib-play]').addEventListener('click', openPlay);
-        card.querySelector('[data-lib-played]').addEventListener('click', () => toggleEpisodePlayed(ep.id));
-        card.querySelector('[data-lib-save]').addEventListener('click', () => toggleEpisodeSaved(ep.id));
-        episodesContainer.appendChild(card);
+        </div>
+      `).join('');
+
+      listEl.querySelectorAll('[data-del-note]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-del-note');
+          notes = notes.filter((item) => item.id !== id);
+          saveLocalState();
+          renderNotes();
+        });
       });
     }
 
-    function mergeEpisodes(incomingList) {
-      const existingByKey = new Map();
-      runtime.episodes.forEach(ep => {
-        const key = `${ep.show.toLowerCase()}::${ep.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
-        existingByKey.set(key, ep);
-      });
-
-      incomingList.forEach(item => {
-        if (!item || !item.title) return;
-        const key = `${item.show.toLowerCase()}::${item.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
-        if (!existingByKey.has(key)) {
-          runtime.episodes.push(item);
-          existingByKey.set(key, item);
-          if (!runtime.queueIds.includes(item.id)) {
-            runtime.queueIds.push(item.id);
-          }
-        }
-      });
-    }
-
-    function fetchItunesJsonp(url) {
-      return new Promise((resolve) => {
-        const cbName = `cf_jsonp_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-        const sep = url.includes('?') ? '&' : '?';
-        const script = document.createElement('script');
-        const timer = setTimeout(() => {
-          cleanup();
-          resolve(null);
-        }, 7000);
-
-        function cleanup() {
-          clearTimeout(timer);
-          try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
-          if (script.parentNode) script.parentNode.removeChild(script);
-        }
-
-        window[cbName] = (data) => {
-          cleanup();
-          resolve(data);
-        };
-
-        script.src = `${url}${sep}callback=${cbName}`;
-        script.onerror = () => {
-          cleanup();
-          resolve(null);
-        };
-        document.body.appendChild(script);
-      });
-    }
-
-    async function fetchEpisodesViaItunesLookup(show) {
-      try {
-        let collectionId = show.collectionId;
-        if (!collectionId) {
-          const searchData = await fetchItunesJsonp(
-            `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=5&term=${encodeURIComponent(show.name)}`
-          );
-          const match = searchData?.results?.[0];
-          if (match) {
-            collectionId = match.collectionId;
-            if (match.feedUrl && !show.feedUrl) show.feedUrl = match.feedUrl;
-          }
-        }
-        if (!collectionId) return [];
-
-        const lookupData = await fetchItunesJsonp(
-          `https://itunes.apple.com/lookup?id=${encodeURIComponent(collectionId)}&entity=podcastEpisode&limit=200`
-        );
-        const rows = Array.isArray(lookupData?.results)
-          ? lookupData.results.filter(r => r.wrapperType === 'podcastEpisode')
-          : [];
-
-        return rows.map((r, idx) => ({
-          id: `itunes-${collectionId}-${r.trackId || idx}`,
-          show: show.name,
-          icon: show.icon || '🎙️',
-          title: r.trackName || `Episode ${idx + 1}`,
-          pubDate: r.releaseDate ? String(r.releaseDate).slice(0, 10) : '',
-          duration: r.trackTimeMillis ? Math.round(r.trackTimeMillis / 1000) : 1800,
-          audioUrl: r.episodeUrl || '',
-          description: r.shortDescription || r.description || '',
-          chapters: [{ start: 0, title: 'Full Episode' }],
-          ads: []
-        }));
-      } catch (_) {
-        return [];
-      }
-    }
-
-    async function loadEpisodesForShow(show) {
-      if (!show || !show.name) return;
-      runtime.loadingShowNames[show.name] = true;
-      renderLibrary();
-
-      try {
-        const itunesEps = await fetchEpisodesViaItunesLookup(show);
-        if (itunesEps.length) {
-          mergeEpisodes(itunesEps);
-        }
-      } finally {
-        runtime.loadingShowNames[show.name] = false;
-        renderLibrary();
-        renderQueue();
-      }
-    }
-
-    async function subscribeToShowInput(rawValue) {
-      const val = String(rawValue || '').trim();
-      if (!val) {
-        showToast('Enter a podcast name, Apple link, or RSS URL');
-        return;
-      }
-
-      let showName = val;
-      let feedUrl = '';
-      let collectionId = null;
-
-      if (/^https?:\/\//i.test(val)) {
-        const appleIdMatch = val.match(/id(\d+)/i);
-        if (appleIdMatch) {
-          collectionId = appleIdMatch[1];
-          const lookupData = await fetchItunesJsonp(`https://itunes.apple.com/lookup?id=${encodeURIComponent(collectionId)}`);
-          const pod = lookupData?.results?.[0];
-          if (pod?.collectionName) showName = pod.collectionName;
-          if (pod?.feedUrl) feedUrl = pod.feedUrl;
-        } else {
-          feedUrl = val;
-          try {
-            showName = new URL(val).hostname.replace(/^www\./, '');
-          } catch (_) {
-            showName = 'Custom Feed';
-          }
-        }
-      } else {
-        const searchData = await fetchItunesJsonp(
-          `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=1&term=${encodeURIComponent(val)}`
-        );
-        const match = searchData?.results?.[0];
-        if (match) {
-          showName = match.collectionName || val;
-          feedUrl = match.feedUrl || '';
-          collectionId = match.collectionId || null;
-        }
-      }
-
-      const existing = prefs.subscribedShows.find(s => s.name.toLowerCase() === showName.toLowerCase());
-      const showObj = existing || { name: showName, icon: '🎙️', feedUrl, collectionId };
-      if (!existing) {
-        prefs.subscribedShows.push(showObj);
-      } else {
-        if (feedUrl && !existing.feedUrl) existing.feedUrl = feedUrl;
-        if (collectionId && !existing.collectionId) existing.collectionId = collectionId;
-      }
-
-      prefs.libraryFilter = 'all';
-      prefs.librarySearch = '';
-      const searchEl = document.getElementById('librarySearchInput');
-      if (searchEl) searchEl.value = '';
-      runtime.expandedShowNames[showObj.name] = true;
-
-      savePrefs();
-      renderLibrary();
-      showToast(`Followed ${showObj.name}`);
-      await loadEpisodesForShow(showObj);
-    }
-
-    function selectEpisode(epId, autoplay = false) {
-      const ep = runtime.episodes.find(e => e.id === epId) || runtime.episodes[0];
-      if (!ep) return;
-      runtime.currentEpisodeId = ep.id;
-      runtime.duration = ep.duration || 1800;
-      runtime.currentTime = 0;
-      runtime.lastTickTime = null;
-
-      if (ep.audioUrl) {
-        audioEl.src = ep.audioUrl;
-        audioEl.playbackRate = prefs.speed;
-      } else {
-        audioEl.removeAttribute('src');
-      }
-
-      renderPlayerHeader(ep);
-      renderScrubberMarkers(ep);
-      renderExtras(ep);
+    function renderAll() {
+      renderPlayer();
       renderQueue();
-      updateTimeUI();
-      setPlaying(autoplay);
-    }
-
-    function setPlaying(playState) {
-      const ep = currentEpisode();
-      if (!ep) return;
-      runtime.isPlaying = Boolean(playState);
-      runtime.lastTickTime = performance.now();
-
-      const playBtn = document.getElementById('playPauseBtn');
-      const carPlayBtn = document.getElementById('carModePlayBtn');
-      if (playBtn) playBtn.textContent = runtime.isPlaying ? '⏸' : '▶';
-      if (carPlayBtn) carPlayBtn.textContent = runtime.isPlaying ? '⏸' : '▶';
-
-      if (ep.audioUrl && audioEl.src) {
-        if (runtime.isPlaying) {
-          audioEl.playbackRate = prefs.speed;
-          audioEl.play().catch(() => {});
-        } else {
-          audioEl.pause();
-        }
-      }
-    }
-
-    function seekTo(sec) {
-      const clamped = Math.max(0, Math.min(runtime.duration || 1800, Number(sec) || 0));
-      runtime.currentTime = clamped;
-      if (audioEl && audioEl.src && Number.isFinite(audioEl.duration)) {
-        try { audioEl.currentTime = clamped; } catch (_) {}
-      }
-      updateTimeUI();
-    }
-
-    function updateTimeUI() {
-      const dur = Math.max(1, runtime.duration || 1800);
-      const cur = Math.max(0, Math.min(dur, runtime.currentTime || 0));
-      const pct = (cur / dur) * 100;
-      const fill = document.getElementById('progressFill');
-      const curLbl = document.getElementById('currentTimeLabel');
-      const durLbl = document.getElementById('durationLabel');
-      if (fill) fill.style.width = `${pct}%`;
-      if (curLbl) curLbl.textContent = formatTime(cur);
-      if (durLbl) durLbl.textContent = formatTime(dur);
-    }
-
-    function tickPlayback(now) {
-      if (runtime.isPlaying) {
-        if (runtime.lastTickTime === null) runtime.lastTickTime = now;
-        const dtSec = ((now - runtime.lastTickTime) / 1000) * (prefs.speed || 1);
-        runtime.lastTickTime = now;
-
-        const ep = currentEpisode();
-        if (ep && ep.audioUrl && audioEl.src && !audioEl.paused) {
-          runtime.currentTime = audioEl.currentTime || runtime.currentTime + dtSec;
-          if (Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
-            runtime.duration = audioEl.duration;
-          }
-        } else {
-          runtime.currentTime += dtSec;
-        }
-
-        if (ep && prefs.autoSkipAds && Array.isArray(ep.ads)) {
-          for (const ad of ep.ads) {
-            if (runtime.currentTime >= ad.start && runtime.currentTime < ad.end - 0.5) {
-              const skippedSec = Math.max(1, Math.round(ad.end - runtime.currentTime));
-              runtime.lastSkippedAd = { returnTime: ad.start, skippedSec };
-              prefs.adSecondsSaved = (prefs.adSecondsSaved || 0) + skippedSec;
-              updateAdSavedPill();
-              seekTo(ad.end);
-              savePrefs();
-              showToast(`Skipped ${ad.label || 'ad'} (${skippedSec}s saved)`, true);
-              break;
-            }
-          }
-        }
-
-        if (runtime.currentTime >= runtime.duration) {
-          if (ep && !isEpisodePlayed(ep.id)) {
-            toggleEpisodePlayed(ep.id);
-          }
-          const curIdx = runtime.queueIds.indexOf(ep?.id);
-          const nextId = runtime.queueIds[curIdx + 1];
-          if (nextId) {
-            selectEpisode(nextId, true);
-          } else {
-            setPlaying(false);
-            seekTo(0);
-          }
-        } else {
-          updateTimeUI();
-        }
-      } else {
-        runtime.lastTickTime = now;
-      }
-
-      requestAnimationFrame(tickPlayback);
+      renderLibrary();
+      renderNotes();
     }
 
     function switchTab(tabName) {
-      const valid = ['player', 'queue', 'library', 'extras'];
-      const target = valid.includes(tabName) ? tabName : 'player';
-      prefs.activeTab = target;
+      const validTabs = ['player', 'queue', 'library', 'notes'];
+      const target = validTabs.includes(tabName) ? tabName : 'library';
+      currentTab = target;
+      saveLocalState();
 
-      const views = {
-        player: document.getElementById('viewPlayer'),
-        queue: document.getElementById('viewQueue'),
-        library: document.getElementById('viewLibrary'),
-        extras: document.getElementById('viewExtras')
-      };
-      Object.entries(views).forEach(([key, el]) => {
-        if (el) el.classList.toggle('hidden', key !== target);
+      ['player', 'queue', 'library', 'notes'].forEach((name) => {
+        const view = document.getElementById(`view-${name}`);
+        const btn = document.getElementById(`nav-${name}`);
+        if (view) {
+          view.classList.toggle('hidden', name !== target);
+        }
+        if (btn) {
+          btn.classList.toggle('text-indigo-400', name === target);
+          btn.classList.toggle('bg-indigo-500/15', name === target);
+          btn.classList.toggle('text-slate-400', name !== target);
+        }
       });
 
-      const tabs = {
-        player: document.getElementById('tabPlayerBtn'),
-        queue: document.getElementById('tabQueueBtn'),
-        library: document.getElementById('tabLibraryBtn'),
-        extras: document.getElementById('tabExtrasBtn')
+      try {
+        if (target === 'library') renderLibrary();
+        if (target === 'queue') renderQueue();
+        if (target === 'player') renderPlayer();
+        if (target === 'notes') renderNotes();
+      } catch (err) {
+        console.warn('Tab render warning:', err);
+      }
+    }
+
+    function handleFollowPodcast() {
+      const input = document.getElementById('addPodcastInput');
+      if (!input) return;
+      const raw = input.value.trim();
+      if (!raw) {
+        showToast('Enter a podcast name, Apple link, or RSS URL.');
+        return;
+      }
+
+      const id = `show-${raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 28)}-${Date.now().toString(36)}`;
+      const title = raw.startsWith('http') ? 'Followed RSS Podcast' : raw;
+      const newShow = {
+        id,
+        title,
+        author: 'Subscribed Show',
+        artwork: `https://placehold.co/200x200/1e293b/e2e8f0?text=${encodeURIComponent(title.slice(0, 3).toUpperCase())}`,
+        feedUrl: raw.startsWith('http') ? raw : ''
       };
-      Object.entries(tabs).forEach(([key, btn]) => {
-        if (!btn) return;
-        const active = key === target;
-        btn.className = active
-          ? 'flex flex-col items-center justify-center py-2 rounded-xl bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold'
-          : 'flex flex-col items-center justify-center py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold';
+
+      subscribedShows.unshift(newShow);
+      episodes.unshift({
+        id: `ep-${Date.now().toString(36)}`,
+        showId: id,
+        showTitle: title,
+        title: `Ep. 1: Welcome to ${title}`,
+        date: new Date().toISOString().slice(0, 10),
+        durationSec: 2100,
+        audioUrl: ''
       });
+
+      input.value = '';
+      markPreferenceChanged();
+      renderLibrary();
+      showToast(`Followed "${title}"`);
     }
 
     function bindEventListeners() {
-      document.getElementById('tabPlayerBtn')?.addEventListener('click', () => switchTab('player'));
-      document.getElementById('tabQueueBtn')?.addEventListener('click', () => switchTab('queue'));
-      document.getElementById('tabLibraryBtn')?.addEventListener('click', () => switchTab('library'));
-      document.getElementById('tabExtrasBtn')?.addEventListener('click', () => switchTab('extras'));
-
-      document.getElementById('playPauseBtn')?.addEventListener('click', () => setPlaying(!runtime.isPlaying));
-      document.getElementById('carModePlayBtn')?.addEventListener('click', () => setPlaying(!runtime.isPlaying));
-      document.getElementById('rewind15Btn')?.addEventListener('click', () => seekTo(runtime.currentTime - 15));
-      document.getElementById('carRewindBtn')?.addEventListener('click', () => seekTo(runtime.currentTime - 15));
-      document.getElementById('forward30Btn')?.addEventListener('click', () => seekTo(runtime.currentTime + 30));
-      document.getElementById('carForwardBtn')?.addEventListener('click', () => seekTo(runtime.currentTime + 30));
-
-      document.getElementById('carModeBtn')?.addEventListener('click', () => {
-        document.getElementById('carModeOverlay')?.classList.remove('hidden');
-      });
-      document.getElementById('exitCarModeBtn')?.addEventListener('click', () => {
-        document.getElementById('carModeOverlay')?.classList.add('hidden');
-      });
-
-      document.getElementById('scrubberTrack')?.addEventListener('click', (e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
-        seekTo(ratio * (runtime.duration || 1800));
-      });
-
-      document.getElementById('speedRange')?.addEventListener('input', (e) => setSpeed(e.target.value));
-
-      document.getElementById('toggleAutoSkipAds')?.addEventListener('change', (e) => {
-        prefs.autoSkipAds = e.target.checked;
-        savePrefs();
-      });
-      document.getElementById('toggleSilenceTrim')?.addEventListener('change', (e) => {
-        prefs.silenceTrim = e.target.checked;
-        applyAudioSettings();
-        savePrefs();
-      });
-      document.getElementById('toggleVoiceBoost')?.addEventListener('change', (e) => {
-        prefs.voiceBoost = e.target.checked;
-        applyAudioSettings();
-        savePrefs();
-      });
-
-      document.getElementById('toastUndoBtn')?.addEventListener('click', () => {
-        if (runtime.lastSkippedAd) {
-          prefs.adSecondsSaved = Math.max(0, (prefs.adSecondsSaved || 0) - runtime.lastSkippedAd.skippedSec);
-          seekTo(runtime.lastSkippedAd.returnTime);
-          runtime.lastSkippedAd = null;
-          updateAdSavedPill();
-          savePrefs();
-          document.getElementById('toastBanner')?.classList.add('hidden');
+      const safeOn = (id, event, handler) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener(event, handler);
         }
+      };
+
+      safeOn('nav-player', 'click', () => switchTab('player'));
+      safeOn('nav-queue', 'click', () => switchTab('queue'));
+      safeOn('nav-library', 'click', () => switchTab('library'));
+      safeOn('nav-notes', 'click', () => switchTab('notes'));
+
+      safeOn('driveModeBtn', 'click', () => {
+        prefs.driveMode = !prefs.driveMode;
+        saveLocalState();
+        showToast(prefs.driveMode ? 'Drive Mode enabled' : 'Drive Mode off');
       });
 
-      document.getElementById('clearQueueBtn')?.addEventListener('click', () => {
-        runtime.queueIds = [];
-        renderQueue();
+      safeOn('followPodcastBtn', 'click', handleFollowPodcast);
+      safeOn('addPodcastInput', 'keydown', (e) => {
+        if (e.key === 'Enter') handleFollowPodcast();
       });
 
-      document.getElementById('libraryFollowBtn')?.addEventListener('click', () => {
-        const input = document.getElementById('libraryFeedInput');
-        if (!input) return;
-        const val = input.value;
-        input.value = '';
-        subscribeToShowInput(val);
+      safeOn('librarySearchInput', 'input', () => renderLibrary());
+      safeOn('filterAllBtn', 'click', () => {
+        libraryFilter = 'all';
+        renderLibrary();
       });
-
-      document.getElementById('libraryFeedInput')?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          document.getElementById('libraryFollowBtn')?.click();
-        }
+      safeOn('filterShowsBtn', 'click', () => {
+        libraryFilter = 'shows';
+        renderLibrary();
       });
-
-      document.getElementById('librarySearchInput')?.addEventListener('input', (e) => {
-        prefs.librarySearch = e.target.value;
+      safeOn('filterSavedBtn', 'click', () => {
+        libraryFilter = 'saved';
         renderLibrary();
       });
 
-      document.getElementById('filterAllBtn')?.addEventListener('click', () => {
-        prefs.libraryFilter = 'all';
-        renderLibrary();
-      });
-      document.getElementById('filterShowsBtn')?.addEventListener('click', () => {
-        prefs.libraryFilter = 'shows';
-        renderLibrary();
-      });
-      document.getElementById('filterSavedBtn')?.addEventListener('click', () => {
-        prefs.libraryFilter = 'saved';
+      safeOn('toggleSortOrderBtn', 'click', () => {
+        prefs.librarySortOrder = prefs.librarySortOrder === 'newest' ? 'oldest' : 'newest';
+        markPreferenceChanged();
         renderLibrary();
       });
 
-      document.getElementById('librarySortBtn')?.addEventListener('click', () => {
-        prefs.librarySortOrder = prefs.librarySortOrder === 'oldest' ? 'newest' : 'oldest';
-        savePrefs();
-        renderLibrary();
-      });
-
-      document.getElementById('toggleHideListenedBtn')?.addEventListener('click', () => {
+      safeOn('toggleHideListenedBtn', 'click', () => {
         prefs.hideListened = !prefs.hideListened;
-        savePrefs();
+        markPreferenceChanged();
         renderLibrary();
       });
 
-      document.getElementById('copySyncKeyBtn')?.addEventListener('click', () => {
-        const baseUrl = `${window.location.origin}${window.location.pathname}`;
-        const shareUrl = `${baseUrl}?sync=${encodeURIComponent(activeSyncKey)}`;
-        try {
-          const tempInput = document.createElement('input');
-          tempInput.value = shareUrl;
-          document.body.appendChild(tempInput);
-          tempInput.select();
-          document.execCommand('copy');
-          document.body.removeChild(tempInput);
-          showToast('Sync link copied');
-        } catch (_) {
-          showToast(`Sync key: ${activeSyncKey}`);
-        }
+      // Player controls
+      safeOn('playPauseBtn', 'click', () => {
+        isPlaying = !isPlaying;
+        renderPlayer();
+      });
+      safeOn('skipBackBtn', 'click', () => {
+        simulatedProgressSec = Math.max(0, simulatedProgressSec - 15);
+        renderPlayer();
+      });
+      safeOn('skipForwardBtn', 'click', () => {
+        const ep = getCurrentEpisode();
+        const dur = Number(ep?.durationSec) || 1800;
+        simulatedProgressSec = Math.min(dur, simulatedProgressSec + 30);
+        renderPlayer();
+      });
+      safeOn('progressSlider', 'input', (e) => {
+        simulatedProgressSec = Number(e.target.value) || 0;
+        renderPlayer();
+      });
+      safeOn('playerMarkListenedBtn', 'click', () => {
+        const ep = getCurrentEpisode();
+        if (ep) toggleListened(ep.id);
+      });
+      safeOn('playerSaveBtn', 'click', () => {
+        const ep = getCurrentEpisode();
+        if (ep) toggleSaved(ep.id);
       });
 
-      document.getElementById('applySyncKeyBtn')?.addEventListener('click', async () => {
+      document.querySelectorAll('.speed-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.speed-btn').forEach((b) => {
+            b.classList.remove('bg-indigo-600', 'text-white');
+            b.classList.add('bg-slate-800', 'text-slate-300');
+          });
+          btn.classList.remove('bg-slate-800', 'text-slate-300');
+          btn.classList.add('bg-indigo-600', 'text-white');
+          showToast(`Playback speed set to ${btn.getAttribute('data-speed')}x`);
+        });
+      });
+
+      // Notes
+      safeOn('addNoteBtn', 'click', () => {
+        const input = document.getElementById('newNoteInput');
+        if (!input || !input.value.trim()) return;
+        notes.unshift({
+          id: `note-${Date.now().toString(36)}`,
+          text: input.value.trim()
+        });
+        input.value = '';
+        saveLocalState();
+        renderNotes();
+      });
+
+      // Sync controls
+      safeOn('syncNowBtn', 'click', async () => {
         const input = document.getElementById('syncKeyInput');
-        if (!input) return;
-        const nextKey = input.value.trim();
-        if (!nextKey) return;
-        loadPrefsForKey(nextKey);
-        syncControlsFromPrefs();
-        renderLibrary();
-        renderQueue();
-        await pullCloudState(nextKey);
-        showToast('Switched sync profile');
+        if (input && input.value.trim()) {
+          activeSyncKey = input.value.trim();
+          localStorage.setItem('castflow_sync_key', activeSyncKey);
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('sync', activeSyncKey);
+            window.history.replaceState({}, '', url.toString());
+          } catch (_) {}
+        }
+        await syncNow(false);
       });
 
-      document.getElementById('addBookmarkBtn')?.addEventListener('click', () => {
-        const ep = currentEpisode();
-        if (!ep) return;
-        const noteInput = document.getElementById('bookmarkNoteInput');
-        const note = noteInput ? noteInput.value.trim() : '';
-        if (!prefs.bookmarks[ep.id]) prefs.bookmarks[ep.id] = [];
-        prefs.bookmarks[ep.id].push({ time: Math.floor(runtime.currentTime), note });
-        if (noteInput) noteInput.value = '';
-        savePrefs();
-        renderExtras(ep);
-        showToast('Bookmark saved');
+      safeOn('copySyncLinkBtn', 'click', () => {
+        let shareUrl = window.location.href;
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('sync', activeSyncKey);
+          shareUrl = url.toString();
+        } catch (_) {}
+
+        const temp = document.createElement('textarea');
+        temp.value = shareUrl;
+        document.body.appendChild(temp);
+        temp.select();
+        try {
+          document.execCommand('copy');
+        } catch (_) {}
+        document.body.removeChild(temp);
+
+        const status = document.getElementById('syncCopyStatus');
+        if (status) {
+          status.textContent = 'Sync link copied!';
+          setTimeout(() => { status.textContent = ''; }, 2500);
+        }
       });
     }
 
     async function initApp() {
-      try {
-        loadPrefsForKey(activeSyncKey);
-        runtime.episodes = buildDemoEpisodes();
-        runtime.queueIds = runtime.episodes.map(e => e.id);
-        runtime.currentEpisodeId = runtime.episodes[0]?.id || null;
-
-        syncControlsFromPrefs();
-        selectEpisode(runtime.currentEpisodeId, false);
-        renderLibrary();
-        renderQueue();
-        switchTab(prefs.activeTab || 'player');
-      } finally {
-        bindEventListeners();
-      }
+      loadLocalState();
 
       try {
-        await initFirebaseSync();
-        await pullCloudState(activeSyncKey);
-        for (const show of prefs.subscribedShows || []) {
-          if (show && show.name) {
-            await loadEpisodesForShow(show);
-          }
+        const urlParams = new URLSearchParams(window.location.search);
+        const querySync = urlParams.get('sync');
+        if (querySync && querySync.trim()) {
+          activeSyncKey = querySync.trim();
+          localStorage.setItem('castflow_sync_key', activeSyncKey);
+        }
+
+        const syncInput = document.getElementById('syncKeyInput');
+        if (syncInput && activeSyncKey) {
+          syncInput.value = activeSyncKey;
         }
       } catch (_) {}
 
-      setInterval(() => {
-        if (activeSyncKey && !document.hidden) {
-          pullCloudState(activeSyncKey);
-        }
-      }, 10000);
+      bindEventListeners();
+      updateSyncStatusUI('Local Only');
+      renderAll();
+      switchTab(currentTab || 'library');
 
-      requestAnimationFrame(tickPlayback);
+      // Advance simulated playback timer gently when playing
+      setInterval(() => {
+        if (isPlaying) {
+          const ep = getCurrentEpisode();
+          const dur = Number(ep?.durationSec) || 1800;
+          if (simulatedProgressSec < dur) {
+            simulatedProgressSec += 1;
+            if (currentTab === 'player') {
+              renderPlayer();
+            }
+          } else {
+            isPlaying = false;
+            renderPlayer();
+          }
+        }
+      }, 1000);
+
+      await syncNow(false);
+
+      setInterval(() => {
+        syncNow(false);
+      }, 15000);
     }
 
     if (document.readyState === 'loading') {
-      window.addEventListener('DOMContentLoaded', initApp);
+      document.addEventListener('DOMContentLoaded', initApp);
     } else {
       initApp();
     }
