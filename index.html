@@ -429,6 +429,7 @@
     ];
 
     let activeSyncKey = localStorage.getItem('castflow_sync_key') || DEFAULT_SYNC_KEY;
+    let remoteBlobId = localStorage.getItem('castflow_blob_id') || '';
     let syncConnected = false;
     let currentTab = 'library';
     let libraryFilter = 'all'; // 'all' | 'shows' | 'saved'
@@ -565,6 +566,47 @@
       const serialized = JSON.stringify(payload);
       let ok = false;
 
+      // Primary reliable CORS-friendly JSON store: jsonblob.com
+      try {
+        if (remoteBlobId) {
+          const putRes = await fetch(`https://jsonblob.com/api/jsonBlob/${encodeURIComponent(remoteBlobId)}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: serialized
+          });
+          if (putRes.ok) {
+            ok = true;
+          } else if (putRes.status === 404) {
+            remoteBlobId = '';
+            localStorage.removeItem('castflow_blob_id');
+          }
+        }
+
+        if (!ok) {
+          const postRes = await fetch('https://jsonblob.com/api/jsonBlob', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: serialized
+          });
+          if (postRes.ok) {
+            const loc = postRes.headers.get('X-Jsonblob-Id') || postRes.headers.get('Location') || '';
+            const extractedId = loc.split('/').filter(Boolean).pop() || '';
+            if (extractedId) {
+              remoteBlobId = extractedId;
+              localStorage.setItem('castflow_blob_id', remoteBlobId);
+            }
+            ok = true;
+          }
+        }
+      } catch (_) {}
+
+      // Secondary fallback: textdb.dev
       try {
         const res = await fetch(`https://textdb.dev/api/data/castflow_${bucket}`, {
           method: 'POST',
@@ -574,15 +616,7 @@
         if (res.ok) ok = true;
       } catch (_) {}
 
-      try {
-        const res = await fetch(`https://kvdb.io/castflow_${bucket}/${bucket}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: serialized
-        });
-        if (res.ok) ok = true;
-      } catch (_) {}
-
+      // Tertiary fallback: keyvalue.immanuel.co
       try {
         await fetch(`https://keyvalue.immanuel.co/api/KeyVal/Init/cf_${bucket}/cf_${bucket}/empty`, {
           method: 'POST'
@@ -607,15 +641,21 @@
       const bucket = getSyncBucketId(key);
       const ts = Date.now();
 
-      const endpoints = [
+      const endpoints = [];
+      if (remoteBlobId) {
+        endpoints.push(`https://jsonblob.com/api/jsonBlob/${encodeURIComponent(remoteBlobId)}?_t=${ts}`);
+      }
+      endpoints.push(
         `https://textdb.dev/api/data/castflow_${bucket}?_t=${ts}`,
-        `https://kvdb.io/castflow_${bucket}/${bucket}?_t=${ts}`,
         `https://keyvalue.immanuel.co/api/KeyVal/GetValue/cf_${bucket}/cf_${bucket}?_t=${ts}`
-      ];
+      );
 
       for (const url of endpoints) {
         try {
-          const res = await fetch(url, { cache: 'no-store' });
+          const res = await fetch(url, {
+            cache: 'no-store',
+            headers: { 'Accept': 'application/json' }
+          });
           if (!res.ok) continue;
           let rawText = await res.text();
           if (!rawText) continue;
@@ -1306,6 +1346,11 @@
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const querySync = urlParams.get('sync');
+        const queryBlob = urlParams.get('blob');
+        if (queryBlob && queryBlob.trim()) {
+          remoteBlobId = queryBlob.trim();
+          localStorage.setItem('castflow_blob_id', remoteBlobId);
+        }
         if (querySync && querySync.trim()) {
           activeSyncKey = querySync.trim();
           localStorage.setItem('castflow_sync_key', activeSyncKey);
