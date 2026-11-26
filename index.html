@@ -374,6 +374,806 @@
 
   <script>
     // =========================================================================
+    // 1. PERSISTENT PREFERENCES & RUNTIME STATE
+    // =========================================================================
+    const STORAGE_KEY = 'castflow_pro_prefs_v1';
+    const audioEl = document.getElementById('audioEl');
+
+    const defaultPrefs = {
+      speed: 1.0,
+      autoSkipAds: true,
+      silenceTrim: true,
+      voiceBoost: true,
+      adSecondsSaved: 0,
+      activeTab: 'player',
+      bookmarks: {},
+      subscribedShows: [
+        { name: 'Tech Frontier Weekly', icon: '🎙️', feedUrl: '' },
+        { name: 'Midnight Mystery Files', icon: '🕵️', feedUrl: '' }
+      ],
+      savedEpisodeIds: ['ep-1'],
+      playedEpisodeIds: [],
+      customFeeds: [],
+      libraryFilter: 'all',
+      librarySearch: ''
+    };
+
+    function loadPrefs() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { ...defaultPrefs };
+        const parsed = JSON.parse(raw);
+        return {
+          ...defaultPrefs,
+          ...parsed,
+          bookmarks: parsed.bookmarks || {},
+          subscribedShows: Array.isArray(parsed.subscribedShows) && parsed.subscribedShows.length
+            ? parsed.subscribedShows
+            : defaultPrefs.subscribedShows,
+          savedEpisodeIds: Array.isArray(parsed.savedEpisodeIds) ? parsed.savedEpisodeIds : defaultPrefs.savedEpisodeIds,
+          playedEpisodeIds: Array.isArray(parsed.playedEpisodeIds) ? parsed.playedEpisodeIds : defaultPrefs.playedEpisodeIds,
+          customFeeds: Array.isArray(parsed.customFeeds) ? parsed.customFeeds : []
+        };
+      } catch (_) {
+        return { ...defaultPrefs };
+      }
+    }
+
+    const prefs = loadPrefs();
+
+    function savePrefs() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+      } catch (_) {}
+    }
+
+    const runtime = {
+      episodes: [],
+      queueIds: [],
+      currentId: null,
+      isPlaying: false,
+      lastTime: 0,
+      lastSkippedAdKey: '',
+      audioCtx: null,
+      sourceNode: null,
+      compressorNode: null,
+      presenceFilter: null,
+      masterGain: null,
+      analyserNode: null,
+      analyserBuf: null
+    };
+
+    function currentEpisode() {
+      return runtime.episodes.find(e => e.id === runtime.currentId) || runtime.episodes[0] || null;
+    }
+
+    function formatClock(sec) {
+      const s = Math.max(0, Math.floor(Number.isFinite(sec) ? sec : 0));
+      const m = Math.floor(s / 60);
+      const rem = s % 60;
+      return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+    }
+
+    function showToast(message, undoAction = null) {
+      const root = document.getElementById('toastRoot');
+      if (!root) return;
+      const toast = document.createElement('div');
+      toast.className = 'pointer-events-auto px-3.5 py-2.5 rounded-2xl bg-cardAlt/95 border border-slate-700 text-xs font-semibold text-white shadow-xl flex items-center justify-between gap-3';
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = message;
+      toast.appendChild(textSpan);
+
+      if (undoAction) {
+        const undoBtn = document.createElement('button');
+        undoBtn.type = 'button';
+        undoBtn.className = 'px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold shrink-0';
+        undoBtn.textContent = 'Hear Ad';
+        undoBtn.onclick = () => {
+          undoAction();
+          toast.remove();
+        };
+        toast.appendChild(undoBtn);
+      }
+
+      root.appendChild(toast);
+      setTimeout(() => {
+        if (toast.isConnected) toast.remove();
+      }, 4200);
+    }
+
+    // =========================================================================
+    // 2. PROCEDURAL DEMO EPISODES & WAV SYNTHESIS
+    // =========================================================================
+    function encodeWavFromFloat32(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      const writeStr = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeStr(0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeStr(8, 'WAVE');
+      writeStr(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+
+      let offset = 44;
+      for (let i = 0; i < samples.length; i++) {
+        const clamped = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+        offset += 2;
+      }
+      return buffer;
+    }
+
+    function synthesizePodcastWav(durationSec = 180, adRanges = [[35, 65], [120, 150]]) {
+      const sampleRate = 11025;
+      const length = durationSec * sampleRate;
+      const samples = new Float32Array(length);
+
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+        const inAd = adRanges.some(([start, end]) => t >= start && t < end);
+        const silenceGap = !inAd && (Math.floor(t * 1.3) % 7 === 0) && ((t % 1) < 0.35);
+
+        if (silenceGap) {
+          samples[i] = (Math.random() - 0.5) * 0.002;
+          continue;
+        }
+
+        if (inAd) {
+          // Compressed commercial bed with higher energy and steady cadence
+          const bed = Math.sin(2 * Math.PI * 330 * t) * 0.16 + Math.sin(2 * Math.PI * 495 * t) * 0.11;
+          const pulse = 0.65 + 0.35 * Math.sin(2 * Math.PI * 5.2 * t);
+          samples[i] = bed * pulse;
+        } else {
+          // Conversational voice-like formant modulation
+          const syllable = Math.max(0, Math.sin(2 * Math.PI * 3.4 * t + Math.sin(2 * Math.PI * 0.7 * t)));
+          const f1 = Math.sin(2 * Math.PI * (165 + 35 * Math.sin(2 * Math.PI * 1.2 * t)) * t);
+          const f2 = Math.sin(2 * Math.PI * (420 + 80 * Math.cos(2 * Math.PI * 2.1 * t)) * t) * 0.45;
+          samples[i] = (f1 + f2) * 0.14 * syllable;
+        }
+      }
+
+      const wavBuf = encodeWavFromFloat32(samples, sampleRate);
+      return URL.createObjectURL(new Blob([wavBuf], { type: 'audio/wav' }));
+    }
+
+    function buildDemoEpisodes() {
+      const ad1 = [35, 65];
+      const ad2 = [120, 150];
+      return [
+        {
+          id: 'ep-1',
+          show: 'Tech Frontier Weekly',
+          title: 'Ep. 142: Neural Audio & Ad Shield',
+          icon: '🎙️',
+          duration: 180,
+          audioUrl: synthesizePodcastWav(180, [ad1, ad2]),
+          segments: [
+            { id: 's-1', start: 0, end: 15, type: 'intro', label: 'Show Intro' },
+            { id: 's-2', start: 15, end: 35, type: 'content', label: 'Main Content' },
+            { id: 's-3', start: ad1[0], end: ad1[1], type: 'ad', label: 'Sponsor Break 1' },
+            { id: 's-4', start: 65, end: 120, type: 'content', label: 'Deep Dive: Real-Time DSP' },
+            { id: 's-5', start: ad2[0], end: ad2[1], type: 'ad', label: 'Sponsor Break 2' },
+            { id: 's-6', start: 150, end: 180, type: 'content', label: 'Wrap-Up & Listener Q&A' }
+          ],
+          chapters: [
+            { start: 0, title: 'Intro & Cold Open' },
+            { start: 15, title: 'Why Podcasts Have Pauses' },
+            { start: 65, title: 'Real-Time Voice & Silence DSP' },
+            { start: 150, title: 'Closing Takeaways' }
+          ],
+          notes: 'Demo episode with simulated speech pauses and two marked commercial breaks (00:35–01:05 and 02:00–02:30) so you can test automatic skipping, silence trim, and voice boost offline.'
+        },
+        {
+          id: 'ep-2',
+          show: 'Midnight Mystery Files',
+          title: 'Ep. 88: Signals From the Pine Ridge',
+          icon: '🕵️',
+          duration: 150,
+          audioUrl: synthesizePodcastWav(150, [[40, 70]]),
+          segments: [
+            { id: 'm-1', start: 0, end: 12, type: 'intro', label: 'Cold Open' },
+            { id: 'm-2', start: 12, end: 40, type: 'content', label: 'Field Recording Review' },
+            { id: 'm-3', start: 40, end: 70, type: 'ad', label: 'Mid-Roll Commercial' },
+            { id: 'm-4', start: 70, end: 150, type: 'content', label: 'Timeline Reconstruction' }
+          ],
+          chapters: [
+            { start: 0, title: 'Cold Open' },
+            { start: 12, title: 'The Initial Log' },
+            { start: 70, title: 'Timeline Reconstruction' }
+          ],
+          notes: 'Second procedural episode featuring a mid-roll commercial break from 00:40 to 01:10.'
+        }
+      ];
+    }
+
+    // =========================================================================
+    // 3. COMMERCIAL DETECTOR FOR LOCAL AUDIO BUFFERS
+    // =========================================================================
+    async function detectAdsFromBuffer(arrayBuffer, fallbackDuration = 120) {
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        const tempCtx = new AudioContextClass();
+        const decoded = await tempCtx.decodeAudioData(arrayBuffer.slice(0));
+        await tempCtx.close();
+
+        const ch0 = decoded.getChannelData(0);
+        const totalDur = decoded.duration || fallbackDuration;
+        const winSec = 5;
+        const winSamples = Math.max(1, Math.floor(winSec * decoded.sampleRate));
+        const segments = [];
+
+        for (let startSample = 0; startSample < ch0.length; startSample += winSamples) {
+          const endSample = Math.min(ch0.length, startSample + winSamples);
+          let sumSq = 0;
+          let peak = 0;
+          for (let i = startSample; i < endSample; i++) {
+            const v = Math.abs(ch0[i]);
+            if (v > peak) peak = v;
+            sumSq += ch0[i] * ch0[i];
+          }
+          const rms = Math.sqrt(sumSq / Math.max(1, endSample - startSample));
+          const crest = rms > 0.0001 ? peak / rms : 1;
+          const isAd = rms > 0.09 && crest < 4.2;
+          const startSec = startSample / decoded.sampleRate;
+          const endSec = Math.min(totalDur, endSample / decoded.sampleRate);
+
+          const prev = segments[segments.length - 1];
+          const type = isAd ? 'ad' : 'content';
+          const label = isAd ? 'Detected Commercial' : 'Main Content';
+
+          if (prev && prev.type === type) {
+            prev.end = endSec;
+          } else {
+            segments.push({ id: `seg-${segments.length}`, start: startSec, end: endSec, type, label });
+          }
+        }
+        return segments.length ? segments : [{ id: 'seg-0', start: 0, end: totalDur, type: 'content', label: 'Main Content' }];
+      } catch (_) {
+        return [{ id: 'seg-0', start: 0, end: fallbackDuration, type: 'content', label: 'Main Content' }];
+      }
+    }
+
+    // =========================================================================
+    // 4. WEB AUDIO DSP ENGINE (SPEED, VOICE BOOST & SILENCE TRIM)
+    // =========================================================================
+    function ensureAudioGraph() {
+      if (runtime.audioCtx) {
+        if (runtime.audioCtx.state === 'suspended') runtime.audioCtx.resume().catch(() => {});
+        return;
+      }
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioContextClass();
+      const source = ctx.createMediaElementSource(audioEl);
+
+      const presence = ctx.createBiquadFilter();
+      presence.type = 'peaking';
+      presence.frequency.value = 2400;
+      presence.Q.value = 1.2;
+      presence.gain.value = 3.5;
+
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -18;
+      compressor.knee.value = 18;
+      compressor.ratio.value = 4;
+      compressor.attack.value = 0.01;
+      compressor.release.value = 0.15;
+
+      const masterGain = ctx.createGain();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+
+      source.connect(presence);
+      presence.connect(compressor);
+      compressor.connect(masterGain);
+      masterGain.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      runtime.audioCtx = ctx;
+      runtime.sourceNode = source;
+      runtime.presenceFilter = presence;
+      runtime.compressorNode = compressor;
+      runtime.masterGain = masterGain;
+      runtime.analyserNode = analyser;
+      runtime.analyserBuf = new Uint8Array(analyser.frequencyBinCount);
+    }
+
+    function applyAudioSettings(silenceBoost = 0) {
+      audioEl.preservesPitch = true;
+      audioEl.mozPreservesPitch = true;
+      audioEl.webkitPreservesPitch = true;
+
+      const targetRate = Math.max(0.5, Math.min(3.0, prefs.speed + silenceBoost));
+      if (Math.abs(audioEl.playbackRate - targetRate) > 0.01) {
+        audioEl.playbackRate = targetRate;
+      }
+
+      if (runtime.presenceFilter && runtime.compressorNode && runtime.masterGain) {
+        if (prefs.voiceBoost) {
+          runtime.presenceFilter.gain.value = 4.0;
+          runtime.compressorNode.threshold.value = -20;
+          runtime.compressorNode.ratio.value = 5;
+          runtime.masterGain.gain.value = 1.15;
+        } else {
+          runtime.presenceFilter.gain.value = 0;
+          runtime.compressorNode.threshold.value = 0;
+          runtime.compressorNode.ratio.value = 1;
+          runtime.masterGain.gain.value = 1.0;
+        }
+      }
+    }
+
+    function updateSilenceTrimRate() {
+      if (!prefs.silenceTrim || !runtime.analyserNode || !runtime.analyserBuf || !runtime.isPlaying) {
+        applyAudioSettings(0);
+        return;
+      }
+      runtime.analyserNode.getByteTimeDomainData(runtime.analyserBuf);
+      let sumSq = 0;
+      for (let i = 0; i < runtime.analyserBuf.length; i++) {
+        const norm = (runtime.analyserBuf[i] - 128) / 128;
+        sumSq += norm * norm;
+      }
+      const rms = Math.sqrt(sumSq / runtime.analyserBuf.length);
+      const boost = rms < 0.018 ? 0.35 : 0;
+      applyAudioSettings(boost);
+    }
+
+    // =========================================================================
+    // 5. PLAYBACK, UI RENDERING & LIBRARY MANAGEMENT
+    // =========================================================================
+    function updateAdSavedPill() {
+      const pill = document.getElementById('adSavedPill');
+      if (pill) pill.textContent = `${Math.round(prefs.adSecondsSaved)}s ads skipped`;
+    }
+
+    function syncPlayButtons() {
+      const glyph = runtime.isPlaying ? '❚❚' : '▶';
+      const mainGlyph = document.getElementById('playPauseGlyph');
+      const carBtn = document.getElementById('carPlayBtn');
+      if (mainGlyph) mainGlyph.textContent = glyph;
+      if (carBtn) carBtn.textContent = glyph;
+    }
+
+    async function setPlaying(play) {
+      const ep = currentEpisode();
+      if (!ep) return;
+      if (play) {
+        ensureAudioGraph();
+        applyAudioSettings(0);
+        try {
+          await audioEl.play();
+          runtime.isPlaying = true;
+          runtime.lastTime = audioEl.currentTime || 0;
+        } catch (_) {
+          runtime.isPlaying = false;
+        }
+      } else {
+        audioEl.pause();
+        runtime.isPlaying = false;
+      }
+      syncPlayButtons();
+    }
+
+    function seekSeconds(targetSec) {
+      const ep = currentEpisode();
+      const dur = audioEl.duration || ep?.duration || 0;
+      const clamped = Math.max(0, Math.min(dur, targetSec));
+      audioEl.currentTime = clamped;
+      runtime.lastTime = clamped;
+      updateScrubberUI(clamped, dur);
+    }
+
+    function renderScrubberMarkers(ep) {
+      const markersEl = document.getElementById('scrubberMarkers');
+      if (!markersEl || !ep) return;
+      const total = ep.duration || audioEl.duration || 1;
+      markersEl.innerHTML = '';
+
+      ep.segments.forEach(seg => {
+        const widthPct = Math.max(0, Math.min(100, ((seg.end - seg.start) / total) * 100));
+        const div = document.createElement('div');
+        div.style.width = `${widthPct}%`;
+        div.title = seg.label;
+        if (seg.type === 'ad') {
+          div.className = 'h-full ad-marker opacity-85 shrink-0';
+        } else if (seg.type === 'intro') {
+          div.className = 'h-full bg-sky-500/20 border-r border-sky-400/20 shrink-0';
+        } else {
+          div.className = 'h-full bg-emerald-500/10 border-r border-slate-700/40 shrink-0';
+        }
+        markersEl.appendChild(div);
+      });
+    }
+
+    function updateScrubberUI(cur, dur) {
+      const safeDur = dur > 0 ? dur : (currentEpisode()?.duration || 1);
+      const pct = Math.max(0, Math.min(100, (cur / safeDur) * 100));
+      const prog = document.getElementById('scrubberProgress');
+      const curLabel = document.getElementById('timeCurrent');
+      const remLabel = document.getElementById('timeRemaining');
+      const carClock = document.getElementById('carClock');
+
+      if (prog) prog.style.width = `${pct}%`;
+      if (curLabel) curLabel.textContent = formatClock(cur);
+      if (remLabel) remLabel.textContent = `-${formatClock(Math.max(0, safeDur - cur))}`;
+      if (carClock) carClock.textContent = formatClock(cur);
+
+      const ep = currentEpisode();
+      const activeSeg = ep?.segments.find(s => cur >= s.start && cur < s.end) || ep?.segments[0];
+      const badge = document.getElementById('segmentBadge');
+      const skipAdBtn = document.getElementById('skipAdNowBtn');
+      const carAdStatus = document.getElementById('carAdStatus');
+
+      if (activeSeg && badge) {
+        if (activeSeg.type === 'ad') {
+          badge.textContent = `Commercial: ${activeSeg.label}`;
+          badge.className = 'inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 mb-1';
+          if (skipAdBtn) skipAdBtn.classList.remove('hidden');
+        } else {
+          badge.textContent = activeSeg.label;
+          badge.className = 'inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 mb-1';
+          if (skipAdBtn) skipAdBtn.classList.add('hidden');
+        }
+      }
+
+      if (carAdStatus) {
+        carAdStatus.textContent = prefs.autoSkipAds ? '🛡️ Auto-Skip ON' : 'Auto-Skip OFF';
+      }
+    }
+
+    function renderExtras(ep) {
+      if (!ep) return;
+      const notesEl = document.getElementById('episodeNotesText');
+      if (notesEl) notesEl.textContent = ep.notes || 'No episode notes available.';
+
+      const chapRoot = document.getElementById('chaptersListRoot');
+      if (chapRoot) {
+        chapRoot.innerHTML = '';
+        (ep.chapters || []).forEach(ch => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'w-full p-3 rounded-xl bg-card hover:bg-cardAlt border border-slate-800 flex items-center justify-between text-left';
+          btn.innerHTML = `<span class="text-sm font-semibold text-white">${ch.title}</span><span class="font-mono text-xs text-indigo-400">${formatClock(ch.start)}</span>`;
+          btn.onclick = () => {
+            seekSeconds(ch.start);
+            switchTab('player');
+          };
+          chapRoot.appendChild(btn);
+        });
+      }
+
+      const bmRoot = document.getElementById('bookmarksListRoot');
+      if (bmRoot) {
+        bmRoot.innerHTML = '';
+        const list = prefs.bookmarks[ep.id] || [];
+        if (!list.length) {
+          bmRoot.innerHTML = `<p class="text-xs text-slate-500 py-1">No bookmarks pinned for this episode yet.</p>`;
+        } else {
+          list.forEach((bm, idx) => {
+            const row = document.createElement('div');
+            row.className = 'p-3 rounded-xl bg-card border border-slate-800 flex items-center justify-between gap-2';
+            row.innerHTML = `
+              <button type="button" class="text-left min-w-0 flex-1">
+                <div class="text-sm font-semibold text-white truncate">${bm.note}</div>
+                <div class="font-mono text-xs text-emerald-400">${formatClock(bm.time)}</div>
+              </button>
+              <button type="button" class="px-2.5 py-1 rounded-lg bg-surface text-xs text-slate-400 hover:text-rose-300">✕</button>
+            `;
+            row.querySelector('button').onclick = () => {
+              seekSeconds(bm.time);
+              switchTab('player');
+            };
+            row.querySelectorAll('button')[1].onclick = () => {
+              prefs.bookmarks[ep.id].splice(idx, 1);
+              savePrefs();
+              renderExtras(ep);
+            };
+            bmRoot.appendChild(row);
+          });
+        }
+      }
+    }
+
+    function selectEpisode(epId, autoPlay = false) {
+      const ep = runtime.episodes.find(e => e.id === epId);
+      if (!ep) return;
+      runtime.currentId = ep.id;
+      runtime.lastSkippedAdKey = '';
+
+      document.getElementById('headerShowLabel').textContent = ep.show;
+      document.getElementById('episodeTitle').textContent = ep.title;
+      document.getElementById('coverIcon').textContent = ep.icon || '🎙️';
+      document.getElementById('carShowTitle').textContent = ep.show;
+      document.getElementById('carEpTitle').textContent = ep.title;
+
+      audioEl.src = ep.audioUrl;
+      audioEl.currentTime = 0;
+      runtime.lastTime = 0;
+
+      renderScrubberMarkers(ep);
+      updateScrubberUI(0, ep.duration);
+      renderExtras(ep);
+      renderQueue();
+      renderLibrary();
+
+      if (autoPlay) {
+        setPlaying(true);
+      } else {
+        runtime.isPlaying = false;
+        syncPlayButtons();
+      }
+    }
+
+    function renderQueue() {
+      const root = document.getElementById('queueListRoot');
+      const countLabel = document.getElementById('queueLengthLabel');
+      if (!root) return;
+      root.innerHTML = '';
+      if (countLabel) countLabel.textContent = `${runtime.queueIds.length} episodes`;
+
+      if (!runtime.queueIds.length) {
+        root.innerHTML = `<p class="text-xs text-slate-500 py-2">Queue is empty.</p>`;
+        return;
+      }
+
+      runtime.queueIds.forEach((id, idx) => {
+        const ep = runtime.episodes.find(e => e.id === id);
+        if (!ep) return;
+        const isCurrent = ep.id === runtime.currentId;
+        const card = document.createElement('div');
+        card.className = `p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${isCurrent ? 'bg-cardAlt border-indigo-500/50' : 'bg-card border-slate-800'}`;
+        card.innerHTML = `
+          <button type="button" class="text-left min-w-0 flex-1">
+            <div class="text-[11px] font-semibold text-indigo-400 truncate">${ep.show}</div>
+            <div class="text-sm font-bold text-white truncate">${ep.title}</div>
+            <div class="font-mono text-xs text-slate-400">${formatClock(ep.duration)}</div>
+          </button>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" class="move-up px-2.5 py-2 rounded-xl bg-surface text-xs font-bold text-slate-300 hover:text-white">↑</button>
+            <button type="button" class="remove-q px-2.5 py-2 rounded-xl bg-surface text-xs font-bold text-slate-400 hover:text-rose-300">✕</button>
+          </div>
+        `;
+        card.querySelector('button').onclick = () => {
+          selectEpisode(ep.id, true);
+          switchTab('player');
+        };
+        card.querySelector('.move-up').onclick = () => {
+          if (idx > 0) {
+            [runtime.queueIds[idx - 1], runtime.queueIds[idx]] = [runtime.queueIds[idx], runtime.queueIds[idx - 1]];
+            renderQueue();
+          }
+        };
+        card.querySelector('.remove-q').onclick = () => {
+          runtime.queueIds.splice(idx, 1);
+          renderQueue();
+        };
+        root.appendChild(card);
+      });
+    }
+
+    function ensureShowSubscription(name, icon = '🎙️', feedUrl = '') {
+      const cleanName = (name || '').trim();
+      if (!cleanName) return;
+      const exists = prefs.subscribedShows.some(s => s.name.toLowerCase() === cleanName.toLowerCase());
+      if (!exists) {
+        prefs.subscribedShows.unshift({ name: cleanName, icon, feedUrl });
+      }
+    }
+
+    function toggleSavedEpisode(epId) {
+      const idx = prefs.savedEpisodeIds.indexOf(epId);
+      if (idx === -1) {
+        prefs.savedEpisodeIds.unshift(epId);
+        showToast('Saved episode to Library');
+      } else {
+        prefs.savedEpisodeIds.splice(idx, 1);
+        showToast('Removed from saved episodes');
+      }
+      savePrefs();
+      renderLibrary();
+    }
+
+    function renderLibrary() {
+      const showsRoot = document.getElementById('libraryShowsRoot');
+      const epsRoot = document.getElementById('libraryEpisodesRoot');
+      const showsBlock = document.getElementById('libraryShowsBlock');
+      const epsBlock = document.getElementById('libraryEpisodesBlock');
+      const showsCount = document.getElementById('libraryShowsCount');
+      const epsCount = document.getElementById('libraryEpisodesCount');
+      if (!showsRoot || !epsRoot) return;
+
+      const filter = prefs.libraryFilter || 'all';
+      const query = (prefs.librarySearch || '').trim().toLowerCase();
+
+      document.querySelectorAll('.lib-filter-btn').forEach(btn => {
+        const active = btn.dataset.libFilter === filter;
+        btn.className = active
+          ? 'lib-filter-btn py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold'
+          : 'lib-filter-btn py-2 rounded-xl bg-cardAlt text-slate-300 border border-slate-700 text-xs font-bold';
+      });
+
+      if (showsBlock) showsBlock.classList.toggle('hidden', filter === 'saved');
+      if (epsBlock) epsBlock.classList.toggle('hidden', filter === 'shows');
+
+      const filteredShows = prefs.subscribedShows.filter(s => {
+        if (!query) return true;
+        return s.name.toLowerCase().includes(query) || (s.feedUrl && s.feedUrl.toLowerCase().includes(query));
+      });
+
+      if (showsCount) showsCount.textContent = `${filteredShows.length} ${filteredShows.length === 1 ? 'show' : 'shows'}`;
+      showsRoot.innerHTML = '';
+
+      if (!filteredShows.length) {
+        showsRoot.innerHTML = `<p class="text-xs text-slate-500 py-2">No matching subscribed shows.</p>`;
+      } else {
+        filteredShows.forEach(show => {
+          const showEps = runtime.episodes.filter(e => e.show.toLowerCase() === show.name.toLowerCase());
+          const card = document.createElement('div');
+          card.className = 'p-3.5 rounded-2xl bg-card border border-slate-800 flex items-center justify-between gap-3';
+          card.innerHTML = `
+            <div class="flex items-center gap-3 min-w-0 flex-1">
+              <div class="w-11 h-11 rounded-xl bg-cardAlt border border-slate-700 flex items-center justify-center text-xl shrink-0">
+                ${show.icon || '🎙️'}
+              </div>
+              <div class="min-w-0">
+                <div class="text-sm font-bold text-white truncate">${show.name}</div>
+                <div class="text-xs text-slate-400 truncate">${showEps.length} ${showEps.length === 1 ? 'episode' : 'episodes'} available</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button type="button" class="play-show-btn px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white">
+                Play
+              </button>
+              <button type="button" class="unfollow-btn px-2.5 py-2 rounded-xl bg-surface text-xs font-bold text-slate-400 hover:text-rose-300" title="Unfollow show">
+                ✕
+              </button>
+            </div>
+          `;
+          card.querySelector('.play-show-btn').onclick = () => {
+            if (showEps.length) {
+              selectEpisode(showEps[0].id, true);
+              switchTab('player');
+            } else {
+              showToast(`No episodes loaded yet for ${show.name}`);
+            }
+          };
+          card.querySelector('.unfollow-btn').onclick = () => {
+            prefs.subscribedShows = prefs.subscribedShows.filter(item => item.name !== show.name);
+            savePrefs();
+            renderLibrary();
+            showToast(`Unfollowed ${show.name}`);
+          };
+          showsRoot.appendChild(card);
+        });
+      }
+
+      const candidateEps = runtime.episodes.filter(ep => {
+        const isSaved = prefs.savedEpisodeIds.includes(ep.id);
+        const isFollowed = prefs.subscribedShows.some(s => s.name.toLowerCase() === ep.show.toLowerCase());
+        if (filter === 'saved' && !isSaved) return false;
+        if (!isSaved && !isFollowed) return false;
+        if (!query) return true;
+        return ep.title.toLowerCase().includes(query) || ep.show.toLowerCase().includes(query);
+      });
+
+      if (epsCount) epsCount.textContent = `${candidateEps.length} ${candidateEps.length === 1 ? 'episode' : 'episodes'}`;
+      epsRoot.innerHTML = '';
+
+      if (!candidateEps.length) {
+        epsRoot.innerHTML = `<p class="text-xs text-slate-500 py-2">No episodes match your current filter.</p>`;
+      } else {
+        candidateEps.forEach(ep => {
+          const isSaved = prefs.savedEpisodeIds.includes(ep.id);
+          const isPlayed = prefs.playedEpisodeIds.includes(ep.id);
+          const card = document.createElement('div');
+          card.className = 'p-3.5 rounded-2xl bg-card border border-slate-800 space-y-2.5';
+          card.innerHTML = `
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] font-semibold text-indigo-400 truncate">${ep.show}</span>
+                  ${isPlayed ? '<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">Played</span>' : ''}
+                </div>
+                <div class="text-sm font-bold text-white leading-snug">${ep.title}</div>
+                <div class="font-mono text-xs text-slate-400 mt-0.5">${formatClock(ep.duration)}</div>
+              </div>
+              <button type="button" class="save-ep-btn px-2.5 py-1.5 rounded-xl text-xs font-bold border shrink-0 ${isSaved ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-surface text-slate-300 border-slate-700'}">
+                ${isSaved ? '★ Saved' : '☆ Save'}
+              </button>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" class="ep-play-btn flex-1 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white">
+                ▶ Play Now
+              </button>
+              <button type="button" class="ep-queue-btn px-3 py-2 rounded-xl bg-cardAlt hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200">
+                + Queue
+              </button>
+            </div>
+          `;
+          card.querySelector('.save-ep-btn').onclick = () => toggleSavedEpisode(ep.id);
+          card.querySelector('.ep-play-btn').onclick = () => {
+            selectEpisode(ep.id, true);
+            switchTab('player');
+          };
+          card.querySelector('.ep-queue-btn').onclick = () => {
+            if (!runtime.queueIds.includes(ep.id)) runtime.queueIds.push(ep.id);
+            renderQueue();
+            showToast('Added to Up Next queue');
+          };
+          epsRoot.appendChild(card);
+        });
+      }
+    }
+
+    function switchTab(tabName) {
+      const valid = ['player', 'library', 'queue', 'extras'];
+      const target = valid.includes(tabName) ? tabName : 'player';
+      prefs.activeTab = target;
+      savePrefs();
+
+      document.querySelectorAll('#view-player, #view-library, #view-queue, #view-extras').forEach(el => {
+        el.classList.add('hidden');
+      });
+      const activeView = document.getElementById(`view-${target}`);
+      if (activeView) activeView.classList.remove('hidden');
+
+      document.querySelectorAll('.nav-tab').forEach(btn => {
+        const isSelected = btn.dataset.tab === target;
+        btn.className = isSelected
+          ? 'nav-tab py-3.5 text-[11px] font-bold text-indigo-400 border-t-2 border-indigo-400 flex flex-col items-center gap-0.5'
+          : 'nav-tab py-3.5 text-[11px] font-bold text-slate-400 border-t-2 border-transparent flex flex-col items-center gap-0.5';
+      });
+
+      if (target === 'library') renderLibrary();
+      if (target === 'queue') renderQueue();
+      if (target === 'extras') renderExtras(currentEpisode());
+    }
+
+    function tickPlayback() {
+      const ep = currentEpisode();
+      const cur = audioEl.currentTime || 0;
+      const dur = audioEl.duration || ep?.duration || 0;
+
+      if (ep && prefs.autoSkipAds && runtime.isPlaying) {
+        const adSeg = ep.segments.find(s => s.type === 'ad' && cur >= s.start && cur < s.end - 0.15);
+        const adKey = adSeg ? `${ep.id}:${adSeg.start}:${adSeg.end}` : '';
+        if (adSeg && adKey !== runtime.lastSkippedAdKey) {
+          runtime.lastSkippedAdKey = adKey;
+          const skippedSec = Math.max(1, adSeg.end - cur);
+          const returnPoint = cur;
+          audioEl.currentTime = adSeg.end;
+          runtime.lastTime = adSeg.end;
+          prefs.adSecondsSaved += skippedSec;
+          savePrefs();
+          updateAdSavedPill();
+          showToast(`Skipped ${Math.round(skippedSec)}s commercial`, () => {
+            audioEl.currentTime = returnPoint;
+            runtime.lastTime = returnPoint;
+          });
+        }
+      }
+
+      if (runtime.isPlaying) {
+        updateSilenceTrimRate();
+      }
+
+      updateScrubberUI(audioEl.currentTime || 0, dur);
+      runtime.lastTime = audioEl.currentTime || 0;
+      requestAnimationFrame(tickPlayback);
+    }
+
+    // =========================================================================
     // 6. FEEDS, APPLE PODCASTS RESOLVER, LOCAL AUDIO & OPML
     // =========================================================================
     async function resolveApplePodcastUrl(rawUrl) {
