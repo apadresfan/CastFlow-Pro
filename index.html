@@ -400,7 +400,7 @@
 
     const audioEl = document.getElementById('audioElement');
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
-    const CLOUD_SYNC_ENDPOINT = 'https://kvdb.io/';
+    const PUBLIC_SYNC_API = 'https://kvdb.io/CastFlowSyncV1';
 
     function generateSyncKey() {
       const partA = Math.random().toString(36).slice(2, 7);
@@ -480,6 +480,33 @@
       if (statusPill) statusPill.textContent = text;
     }
 
+    function getFallbackSyncUrl(key) {
+      const safeKey = encodeURIComponent(String(key || '').trim());
+      return `${PUBLIC_SYNC_API}/${safeKey}`;
+    }
+
+    async function pushFallbackSyncState(key, payload) {
+      const url = getFallbackSyncUrl(key);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payload,
+          syncKey: key,
+          updatedAt: Number(payload.updatedAt) || Date.now()
+        })
+      });
+      return res.ok;
+    }
+
+    async function pullFallbackSyncState(key) {
+      const url = getFallbackSyncUrl(key);
+      const res = await fetch(url, { method: 'GET', cache: 'no-store' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data && typeof data === 'object' ? data : null;
+    }
+
     async function pushCloudState(key, payload) {
       if (!key || isApplyingRemoteState) return;
       try {
@@ -487,17 +514,20 @@
           await initFirebaseSync();
         }
         const docRef = getSyncDocRef(key);
-        if (!docRef || !currentUser) {
-          updateSyncStatusUI('Local Only');
+        if (docRef && currentUser) {
+          updateSyncStatusUI('Syncing...');
+          await setDoc(docRef, {
+            ...payload,
+            syncKey: key,
+            updatedAt: Number(payload.updatedAt) || Date.now()
+          }, { merge: true });
+          updateSyncStatusUI('Synced');
           return;
         }
+
         updateSyncStatusUI('Syncing...');
-        await setDoc(docRef, {
-          ...payload,
-          syncKey: key,
-          updatedAt: Number(payload.updatedAt) || Date.now()
-        }, { merge: true });
-        updateSyncStatusUI('Synced');
+        const ok = await pushFallbackSyncState(key, payload);
+        updateSyncStatusUI(ok ? 'Cloud Synced' : 'Local Only');
       } catch (_) {
         updateSyncStatusUI('Local Only');
       }
@@ -528,20 +558,20 @@
         unsubscribeCloudDoc = null;
       }
       const docRef = getSyncDocRef(key);
-      if (!docRef || !currentUser) return;
-
-      unsubscribeCloudDoc = onSnapshot(
-        docRef,
-        (snap) => {
-          if (snap && snap.exists()) {
-            applyIncomingRemotePayload(snap.data());
-            updateSyncStatusUI('Synced');
+      if (docRef && currentUser) {
+        unsubscribeCloudDoc = onSnapshot(
+          docRef,
+          (snap) => {
+            if (snap && snap.exists()) {
+              applyIncomingRemotePayload(snap.data());
+              updateSyncStatusUI('Synced');
+            }
+          },
+          () => {
+            updateSyncStatusUI('Local Only');
           }
-        },
-        () => {
-          updateSyncStatusUI('Local Only');
-        }
-      );
+        );
+      }
     }
 
     async function pullCloudState(key) {
@@ -551,24 +581,34 @@
           await initFirebaseSync();
         }
         const docRef = getSyncDocRef(key);
-        if (!docRef || !currentUser) {
+        if (docRef && currentUser) {
+          updateSyncStatusUI('Pulling...');
+          const snap = await getDoc(docRef);
+          if (snap && snap.exists()) {
+            applyIncomingRemotePayload(snap.data());
+          } else {
+            // Seed initial profile in cloud if this key hasn't been written yet
+            const payload = serializeSyncPayload();
+            await setDoc(docRef, { ...payload, syncKey: key }, { merge: true });
+          }
           subscribeToCloudKey(key);
-          return false;
+          updateSyncStatusUI('Synced');
+          return true;
         }
+
         updateSyncStatusUI('Pulling...');
-        const snap = await getDoc(docRef);
-        if (snap && snap.exists()) {
-          applyIncomingRemotePayload(snap.data());
+        const remote = await pullFallbackSyncState(key);
+        if (remote) {
+          applyIncomingRemotePayload(remote);
+          updateSyncStatusUI('Cloud Synced');
+          return true;
         } else {
-          // Seed initial profile in cloud if this key hasn't been written yet
           const payload = serializeSyncPayload();
-          await setDoc(docRef, { ...payload, syncKey: key }, { merge: true });
+          const seeded = await pushFallbackSyncState(key, payload);
+          updateSyncStatusUI(seeded ? 'Cloud Synced' : 'Local Only');
+          return seeded;
         }
-        subscribeToCloudKey(key);
-        updateSyncStatusUI('Synced');
-        return true;
       } catch (_) {
-        subscribeToCloudKey(key);
         updateSyncStatusUI('Local Only');
         return false;
       }
@@ -1437,6 +1477,12 @@
           loadEpisodesForShow(show);
         }
       });
+
+      setInterval(() => {
+        if (activeSyncKey && !document.hidden) {
+          pullCloudState(activeSyncKey);
+        }
+      }, 15000);
 
       requestAnimationFrame(tickPlayback);
     }
