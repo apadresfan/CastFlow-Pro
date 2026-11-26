@@ -400,23 +400,15 @@
 
     const audioEl = document.getElementById('audioElement');
     const STORAGE_KEY_PREFIX = 'castflow_pro_v2_';
-    const PUBLIC_SYNC_API = 'https://kvdb.io/CastFlowSyncV1';
+    const PUBLIC_SYNC_ENDPOINTS = [
+      'https://kvdb.io/CastFlowSyncV1',
+      'https://keyvalue.immanuel.co/api/KeyVal'
+    ];
+    const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
 
     function generateSyncKey() {
-      const partA = Math.random().toString(36).slice(2, 7);
-      const partB = Math.random().toString(36).slice(2, 7);
-      return `cf-${partA}-${partB}`;
-    }
-
-    function getInitialSyncKey() {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const fromUrl = (params.get('sync') || '').trim();
-        if (fromUrl) return fromUrl;
-        const savedKey = localStorage.getItem('castflow_active_sync_key');
-        if (savedKey) return savedKey.trim();
-      } catch (_) {}
-      return generateSyncKey();
+      const randPart = () => Math.random().toString(36).slice(2, 7);
+      return `cf-${randPart()}-${randPart()}`;
     }
 
     const defaultPrefs = {
@@ -427,34 +419,27 @@
       adSecondsSaved: 0,
       activeTab: 'player',
       libraryFilter: 'all',
+      librarySearch: '',
       librarySortOrder: 'newest',
       hideListened: false,
-      librarySearch: '',
+      playedEpisodeIds: [],
+      savedEpisodeIds: [],
+      bookmarks: {},
       subscribedShows: [
         { name: 'Tech Frontier Weekly', icon: '🎙️', feedUrl: '', collectionId: null },
         { name: 'Midnight Mystery Files', icon: '🕵️', feedUrl: '', collectionId: null }
       ],
-      playedEpisodeIds: [],
-      savedEpisodeIds: [],
-      bookmarks: {},
       updatedAt: 0
     };
 
-    const prefs = Object.assign({}, defaultPrefs);
-    let activeSyncKey = getInitialSyncKey();
+    let prefs = JSON.parse(JSON.stringify(defaultPrefs));
 
-    function applyParsedPrefs(parsed) {
-      if (!parsed || typeof parsed !== 'object') return;
-      Object.assign(prefs, defaultPrefs, parsed, {
-        librarySortOrder: parsed.librarySortOrder === 'oldest' ? 'oldest' : 'newest',
-        hideListened: Boolean(parsed.hideListened),
-        subscribedShows: Array.isArray(parsed.subscribedShows) ? parsed.subscribedShows : [...defaultPrefs.subscribedShows],
-        playedEpisodeIds: Array.isArray(parsed.playedEpisodeIds) ? Array.from(new Set(parsed.playedEpisodeIds)) : [],
-        savedEpisodeIds: Array.isArray(parsed.savedEpisodeIds) ? Array.from(new Set(parsed.savedEpisodeIds)) : [],
-        bookmarks: parsed.bookmarks && typeof parsed.bookmarks === 'object' ? parsed.bookmarks : {},
-        updatedAt: Number(parsed.updatedAt) || 0
-      });
-    }
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlSyncKey = (urlParams.get('sync') || '').trim();
+    let activeSyncKey =
+      urlSyncKey ||
+      localStorage.getItem('castflow_active_sync_key') ||
+      generateSyncKey();
 
     function serializeSyncPayload() {
       return {
@@ -465,13 +450,33 @@
         adSecondsSaved: prefs.adSecondsSaved,
         activeTab: prefs.activeTab,
         libraryFilter: prefs.libraryFilter,
+        librarySearch: prefs.librarySearch,
         librarySortOrder: prefs.librarySortOrder,
         hideListened: prefs.hideListened,
-        subscribedShows: prefs.subscribedShows,
-        playedEpisodeIds: Array.from(new Set(prefs.playedEpisodeIds || [])),
-        savedEpisodeIds: Array.from(new Set(prefs.savedEpisodeIds || [])),
-        bookmarks: prefs.bookmarks,
-        updatedAt: prefs.updatedAt || Date.now()
+        playedEpisodeIds: Array.isArray(prefs.playedEpisodeIds) ? prefs.playedEpisodeIds : [],
+        savedEpisodeIds: Array.isArray(prefs.savedEpisodeIds) ? prefs.savedEpisodeIds : [],
+        bookmarks: prefs.bookmarks && typeof prefs.bookmarks === 'object' ? prefs.bookmarks : {},
+        subscribedShows: Array.isArray(prefs.subscribedShows) ? prefs.subscribedShows : [],
+        updatedAt: Number(prefs.updatedAt) || Date.now()
+      };
+    }
+
+    function applyParsedPrefs(parsed) {
+      const safe = parsed && typeof parsed === 'object' ? parsed : {};
+      prefs = {
+        ...JSON.parse(JSON.stringify(defaultPrefs)),
+        ...safe,
+        speed: Number(safe.speed) || 1.0,
+        adSecondsSaved: Number(safe.adSecondsSaved) || 0,
+        librarySortOrder: safe.librarySortOrder === 'oldest' ? 'oldest' : 'newest',
+        hideListened: Boolean(safe.hideListened),
+        playedEpisodeIds: Array.isArray(safe.playedEpisodeIds) ? safe.playedEpisodeIds : [],
+        savedEpisodeIds: Array.isArray(safe.savedEpisodeIds) ? safe.savedEpisodeIds : [],
+        bookmarks: safe.bookmarks && typeof safe.bookmarks === 'object' ? safe.bookmarks : {},
+        subscribedShows: Array.isArray(safe.subscribedShows)
+          ? safe.subscribedShows
+          : JSON.parse(JSON.stringify(defaultPrefs.subscribedShows)),
+        updatedAt: Number(safe.updatedAt) || 0
       };
     }
 
@@ -480,31 +485,116 @@
       if (statusPill) statusPill.textContent = text;
     }
 
-    function getFallbackSyncUrl(key) {
-      const safeKey = encodeURIComponent(String(key || '').trim());
-      return `${PUBLIC_SYNC_API}/${safeKey}`;
+    function getBlobIdMap() {
+      try {
+        const raw = localStorage.getItem('castflow_jsonblob_map');
+        return raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function saveBlobIdMap(map) {
+      try {
+        localStorage.setItem('castflow_jsonblob_map', JSON.stringify(map));
+      } catch (_) {}
     }
 
     async function pushFallbackSyncState(key, payload) {
-      const url = getFallbackSyncUrl(key);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...payload,
-          syncKey: key,
-          updatedAt: Number(payload.updatedAt) || Date.now()
-        })
-      });
-      return res.ok;
+      const safeKey = encodeURIComponent(String(key || '').trim());
+      const bodyObj = {
+        ...payload,
+        syncKey: key,
+        updatedAt: Number(payload.updatedAt) || Date.now()
+      };
+      const bodyStr = JSON.stringify(bodyObj);
+
+      for (const base of PUBLIC_SYNC_ENDPOINTS) {
+        try {
+          const url = base.includes('keyvalue.immanuel.co')
+            ? `${base}/CastFlowSyncV1_${safeKey}/${encodeURIComponent(bodyStr)}`
+            : `${base}/${safeKey}`;
+          const method = base.includes('keyvalue.immanuel.co') ? 'POST' : 'POST';
+          const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: base.includes('keyvalue.immanuel.co') ? undefined : bodyStr
+          });
+          if (res.ok) return true;
+        } catch (_) {}
+      }
+
+      try {
+        const blobMap = getBlobIdMap();
+        let blobId = blobMap[key];
+        if (!blobId) {
+          const createRes = await fetch(JSONBLOB_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: bodyStr
+          });
+          if (createRes.ok) {
+            const loc = createRes.headers.get('Location') || '';
+            const created = await createRes.json().catch(() => null);
+            blobId = created?.id || loc.split('/').pop();
+            if (blobId) {
+              blobMap[key] = blobId;
+              saveBlobIdMap(blobMap);
+              return true;
+            }
+          }
+        } else {
+          const putRes = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: bodyStr
+          });
+          if (putRes.ok) return true;
+        }
+      } catch (_) {}
+
+      return false;
     }
 
     async function pullFallbackSyncState(key) {
-      const url = getFallbackSyncUrl(key);
-      const res = await fetch(url, { method: 'GET', cache: 'no-store' });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data && typeof data === 'object' ? data : null;
+      const safeKey = encodeURIComponent(String(key || '').trim());
+
+      for (const base of PUBLIC_SYNC_ENDPOINTS) {
+        try {
+          const url = base.includes('keyvalue.immanuel.co')
+            ? `${base}/get/CastFlowSyncV1_${safeKey}`
+            : `${base}/${safeKey}`;
+          const res = await fetch(url, { method: 'GET', cache: 'no-store' });
+          if (!res.ok) continue;
+          const rawText = await res.text();
+          if (!rawText) continue;
+          let parsed = JSON.parse(rawText);
+          if (typeof parsed === 'string') {
+            parsed = JSON.parse(parsed);
+          }
+          if (parsed && typeof parsed === 'object') {
+            return parsed;
+          }
+        } catch (_) {}
+      }
+
+      try {
+        const blobMap = getBlobIdMap();
+        const blobId = blobMap[key];
+        if (blobId) {
+          const res = await fetch(`${JSONBLOB_API}/${encodeURIComponent(blobId)}`, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store'
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && typeof data === 'object') return data;
+          }
+        }
+      } catch (_) {}
+
+      return null;
     }
 
     async function pushCloudState(key, payload) {
@@ -537,15 +627,37 @@
       if (!remote || typeof remote !== 'object') return;
       const localUpdated = Number(prefs.updatedAt) || 0;
       const remoteUpdated = Number(remote.updatedAt) || 0;
-      if (remoteUpdated >= localUpdated) {
+      const localHasCustomShows =
+        Array.isArray(prefs.subscribedShows) &&
+        !(prefs.subscribedShows.length === 2 &&
+          prefs.subscribedShows[0]?.name === 'Tech Frontier Weekly' &&
+          prefs.subscribedShows[1]?.name === 'Midnight Mystery Files');
+      const remoteHasCustomShows =
+        Array.isArray(remote.subscribedShows) &&
+        !(remote.subscribedShows.length === 2 &&
+          remote.subscribedShows[0]?.name === 'Tech Frontier Weekly' &&
+          remote.subscribedShows[1]?.name === 'Midnight Mystery Files');
+
+      const shouldApply =
+        remoteUpdated > localUpdated ||
+        (remoteHasCustomShows && !localHasCustomShows) ||
+        (remoteUpdated === localUpdated && JSON.stringify(remote.subscribedShows || []) !== JSON.stringify(prefs.subscribedShows || []));
+
+      if (shouldApply) {
         isApplyingRemoteState = true;
         try {
+          const prevShowNames = new Set((prefs.subscribedShows || []).map(s => (s?.name || '').toLowerCase()));
           applyParsedPrefs(remote);
           localStorage.setItem(STORAGE_KEY_PREFIX + activeSyncKey, JSON.stringify(serializeSyncPayload()));
           syncControlsFromPrefs();
           renderLibrary();
           renderQueue();
           switchTab(prefs.activeTab || 'player');
+          (prefs.subscribedShows || []).forEach(show => {
+            if (show && show.name && !prevShowNames.has(show.name.toLowerCase())) {
+              loadEpisodesForShow(show);
+            }
+          });
         } finally {
           isApplyingRemoteState = false;
         }
