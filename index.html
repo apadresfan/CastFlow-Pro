@@ -994,9 +994,10 @@
       try {
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(show.feedUrl)}`);
         const data = await res.json();
-        const xml = new DOMParser().parseFromString(data.contents, 'text/xml');
+        const rawXml = typeof data === 'string' ? data : (data?.contents || '');
+        const xml = new DOMParser().parseFromString(rawXml, 'text/xml');
         const resolvedShowName = xml.querySelector('channel > title')?.textContent?.trim() || show.name;
-        const items = Array.from(xml.querySelectorAll('item')).slice(0, 12);
+        const items = Array.from(xml.querySelectorAll('item')).slice(0, 15);
 
         items.forEach((item, idx) => {
           const enclosureUrl = item.querySelector('enclosure')?.getAttribute('url');
@@ -1396,6 +1397,44 @@
       let url = (rawUrl || '').trim();
       if (!url) return;
 
+      const looksLikeUrl = /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}(\/|$)/i.test(url);
+      if (!looksLikeUrl) {
+        showToast(`Searching Apple Podcasts for "${url}"...`);
+        const searchUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=5&term=${encodeURIComponent(url)}`;
+        let found = null;
+        try {
+          const direct = await fetch(searchUrl);
+          if (direct.ok) {
+            const json = await direct.json();
+            found = (json?.results || []).find(item => item.feedUrl);
+          }
+        } catch (_) {}
+
+        if (!found) {
+          try {
+            const proxy = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(searchUrl)}`);
+            const wrapped = await proxy.json();
+            const rawJson = typeof wrapped === 'string' ? wrapped : (wrapped?.contents || '{}');
+            const json = JSON.parse(rawJson);
+            found = (json?.results || []).find(item => item.feedUrl);
+          } catch (_) {}
+        }
+
+        if (!found || !found.feedUrl) {
+          showToast(`No podcast feed found for "${url}"`);
+          return;
+        }
+
+        url = found.feedUrl;
+        if (!fallbackShowTitle) {
+          fallbackShowTitle = found.collectionName || found.trackName || url;
+        }
+      }
+
+      if (!/^https?:\/\//i.test(url)) {
+        url = `https://${url}`;
+      }
+
       if (/podcasts\.apple\.com/i.test(url)) {
         showToast('Resolving Apple Podcasts link to RSS...');
         const resolved = await resolveApplePodcastUrl(url);
@@ -1410,9 +1449,10 @@
       try {
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
         const data = await res.json();
-        const xml = new DOMParser().parseFromString(data.contents, 'text/xml');
-        const show = xml.querySelector('channel > title')?.textContent || fallbackShowTitle || 'RSS Podcast';
-        const items = Array.from(xml.querySelectorAll('item')).slice(0, 5);
+        const rawXml = typeof data === 'string' ? data : (data?.contents || '');
+        const xml = new DOMParser().parseFromString(rawXml, 'text/xml');
+        const show = xml.querySelector('channel > title')?.textContent?.trim() || fallbackShowTitle || 'RSS Podcast';
+        const items = Array.from(xml.querySelectorAll('item')).slice(0, 10);
 
         ensureShowSubscription(show, '📡', url);
 
@@ -1422,7 +1462,7 @@
           const ep = {
             id: `rss-${Date.now()}-${idx}`,
             show,
-            title: item.querySelector('title')?.textContent || `Episode ${idx + 1}`,
+            title: item.querySelector('title')?.textContent?.trim() || `Episode ${idx + 1}`,
             icon: '📡',
             duration: 1200,
             audioUrl: enclosureUrl,
